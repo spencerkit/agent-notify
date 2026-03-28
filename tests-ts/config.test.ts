@@ -244,13 +244,20 @@ describe("config helpers", () => {
 
   it("upserts and unsets sound_file while preserving unrelated TOML keys", () => {
     const source = ['desktop_enabled = false', 'custom_key = "keep-me"'].join("\n");
-
-    expect(setFlatTomlString(source, "sound_file", "/tmp/ding.wav")).toContain(
-      'sound_file = "/tmp/ding.wav"'
+    const withSoundFile = setFlatTomlString(source, "sound_file", "/tmp/ding.wav");
+    const withoutSoundFile = unsetFlatTomlKey(
+      source + '\nsound_file = "/tmp/ding.wav"\n',
+      "sound_file"
     );
-    expect(
-      unsetFlatTomlKey(source + '\nsound_file = "/tmp/ding.wav"\n', "sound_file")
-    ).toContain('custom_key = "keep-me"');
+
+    expect(withSoundFile).toBe(
+      ['desktop_enabled = false', 'custom_key = "keep-me"', 'sound_file = "/tmp/ding.wav"', ""].join(
+        "\n"
+      )
+    );
+    expect(withoutSoundFile).toBe(
+      ['desktop_enabled = false', 'custom_key = "keep-me"', ""].join("\n")
+    );
   });
 
   it("uses XDG directories when set and falls back under the home directory", () => {
