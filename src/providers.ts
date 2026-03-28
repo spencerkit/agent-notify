@@ -10,6 +10,7 @@ export interface DeliveryProvider {
 export interface DesktopProviderOptions {
   commandExists?: (command: string) => boolean | Promise<boolean>;
   run?: (command: readonly string[]) => Promise<{ ok: boolean }>;
+  isWsl?: () => boolean;
 }
 
 export interface SoundProviderOptions {
@@ -17,15 +18,18 @@ export interface SoundProviderOptions {
   run?: (command: readonly string[]) => Promise<{ ok: boolean }>;
   writeTerminalBell?: () => void | Promise<void>;
   writeStdoutBell?: () => void | Promise<void>;
+  isWsl?: () => boolean;
 }
 
 export class DesktopProvider implements DeliveryProvider {
   private readonly commandExists: Required<DesktopProviderOptions>["commandExists"];
   private readonly run: Required<DesktopProviderOptions>["run"];
+  private readonly isWsl: Required<DesktopProviderOptions>["isWsl"];
 
   constructor(options: DesktopProviderOptions = {}) {
     this.commandExists = options.commandExists ?? commandAvailable;
     this.run = options.run ?? runCommand;
+    this.isWsl = options.isWsl ?? defaultIsWsl;
   }
 
   async send(event: NormalizedEvent): Promise<boolean> {
@@ -46,6 +50,15 @@ export class DesktopProvider implements DeliveryProvider {
       return this.execute(["notify-send", title, event.summary]);
     }
 
+    if (this.isWsl() && (await this.commandExists("powershell.exe"))) {
+      return this.execute([
+        "powershell.exe",
+        "-NoProfile",
+        "-Command",
+        buildWindowsToastScript(title, event.summary)
+      ]);
+    }
+
     return false;
   }
 
@@ -64,12 +77,14 @@ export class SoundProvider implements DeliveryProvider {
   private readonly run: Required<SoundProviderOptions>["run"];
   private readonly writeTerminalBell: Required<SoundProviderOptions>["writeTerminalBell"];
   private readonly writeStdoutBell: Required<SoundProviderOptions>["writeStdoutBell"];
+  private readonly isWsl: Required<SoundProviderOptions>["isWsl"];
 
   constructor(options: SoundProviderOptions = {}) {
     this.commandExists = options.commandExists ?? commandAvailable;
     this.run = options.run ?? runCommand;
     this.writeTerminalBell = options.writeTerminalBell ?? defaultWriteTerminalBell;
     this.writeStdoutBell = options.writeStdoutBell ?? defaultWriteStdoutBell;
+    this.isWsl = options.isWsl ?? defaultIsWsl;
   }
 
   async send(_event: NormalizedEvent): Promise<boolean> {
@@ -85,6 +100,22 @@ export class SoundProvider implements DeliveryProvider {
         }
       } catch {
         continue;
+      }
+    }
+
+    if (this.isWsl() && (await this.commandExists("powershell.exe"))) {
+      try {
+        const result = await this.run([
+          "powershell.exe",
+          "-NoProfile",
+          "-Command",
+          "[console]::beep(880,200)"
+        ]);
+        if (result.ok) {
+          return true;
+        }
+      } catch {
+        // Fall through to terminal bell fallback.
       }
     }
 
@@ -164,4 +195,44 @@ async function defaultWriteStdoutBell(): Promise<void> {
 
 function escapeAppleScriptString(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("\n", "\\n");
+}
+
+function defaultIsWsl(): boolean {
+  return Boolean(process.env.WSL_DISTRO_NAME || process.env.WSL_INTEROP);
+}
+
+function buildWindowsToastScript(title: string, summary: string): string {
+  const xml = [
+    "<toast>",
+    "  <visual>",
+    '    <binding template="ToastGeneric">',
+    `      <text>${escapeXml(title)}</text>`,
+    `      <text>${escapeXml(summary)}</text>`,
+    "    </binding>",
+    "  </visual>",
+    "</toast>"
+  ].join("");
+
+  return [
+    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null",
+    "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null",
+    "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument",
+    `$xml.LoadXml('${escapePowerShellSingleQuotedString(xml)}')`,
+    "$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)",
+    "$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('agent-notify')",
+    "$notifier.Show($toast)"
+  ].join("; ");
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function escapePowerShellSingleQuotedString(value: string): string {
+  return value.replaceAll("'", "''");
 }

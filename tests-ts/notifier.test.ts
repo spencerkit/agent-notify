@@ -194,6 +194,31 @@ describe("providers", () => {
     expect(commands).toEqual([["notify-send", "[claude] demo · failed", "Needs attention"]]);
   });
 
+  it("uses powershell.exe when running in WSL and Linux desktop commands are unavailable", async () => {
+    const commands: Array<readonly string[]> = [];
+    const provider = new DesktopProvider({
+      commandExists: (command) => command === "powershell.exe",
+      run: async (command) => {
+        commands.push(command);
+        return { ok: true };
+      },
+      isWsl: () => true
+    });
+
+    const sent = await provider.send(
+      makeEvent({ tool: "claude", state: "failed", project: "demo", summary: "Needs attention" })
+    );
+
+    expect(sent).toBe(true);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.[0]).toBe("powershell.exe");
+    expect(commands[0]?.[1]).toBe("-NoProfile");
+    expect(commands[0]?.[2]).toBe("-Command");
+    expect(commands[0]?.[3]).toContain("ToastNotificationManager");
+    expect(commands[0]?.[3]).toContain("[claude] demo · failed");
+    expect(commands[0]?.[3]).toContain("Needs attention");
+  });
+
   it("uses notify-send when osascript fails at runtime", async () => {
     const commands: Array<readonly string[]> = [];
     const provider = new DesktopProvider({
@@ -259,6 +284,25 @@ describe("providers", () => {
     expect(commands).toEqual([
       ["paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"],
       ["aplay", "/usr/share/sounds/alsa/Front_Center.wav"]
+    ]);
+  });
+
+  it("uses powershell.exe for sound when running in WSL and Linux sound commands are unavailable", async () => {
+    const commands: Array<readonly string[]> = [];
+    const provider = new SoundProvider({
+      commandExists: (command) => command === "powershell.exe",
+      run: async (command) => {
+        commands.push(command);
+        return { ok: true };
+      },
+      isWsl: () => true
+    });
+
+    const sent = await provider.send(makeEvent({ state: "failed" }));
+
+    expect(sent).toBe(true);
+    expect(commands).toEqual([
+      ["powershell.exe", "-NoProfile", "-Command", "[console]::beep(880,200)"]
     ]);
   });
 
