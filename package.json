@@ -1,6 +1,6 @@
 {
   "name": "@spencer-kit/agent-notify",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "CLI notifications for Codex and Claude Code task completion and attention events",
   "license": "MIT",
   "type": "module",

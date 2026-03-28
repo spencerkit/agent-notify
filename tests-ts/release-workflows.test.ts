@@ -34,6 +34,8 @@ describe("release workflows", () => {
     expect(workflow).toContain("branches:");
     expect(workflow).toContain("- main");
     expect(workflow).toContain("pull_request:");
+    expect(workflow).toContain("actions/setup-node@v6");
+    expect(workflow).toContain("node-version: 24");
     expect(workflow).toContain("npm ci");
     expect(workflow).toContain("npm test");
     expect(workflow).toContain("npm run build");
@@ -50,6 +52,9 @@ describe("release workflows", () => {
     expect(workflow).toContain("types: [published]");
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain("ref: ${{ github.event.release.tag_name }}");
+    expect(workflow).toContain("actions/setup-node@v6");
+    expect(workflow).toContain("node-version: 24");
+    expect(workflow).toContain("npm install -g npm@^11.10.0");
     expect(workflow).toContain("npm ci");
     expect(workflow).toContain("npm test");
     expect(workflow).toContain("npm run build");
