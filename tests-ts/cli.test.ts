@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { main } from "../src/cli.js";
+import { DEFAULT_CONFIG, formatConfigToml } from "../src/config.js";
 
 describe("main", () => {
   it("routes codex handle payloads from an argument", async () => {
@@ -218,8 +219,41 @@ describe("main", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("desktop_enabled = true");
-    expect(stdout).toContain("sound_enabled = true");
+    expect(stdout).toBe(formatConfigToml(DEFAULT_CONFIG));
+  });
+
+  it("prints the existing empty global config file as-is for config get", async () => {
+    let stdout = "";
+
+    const exitCode = await main(["config", "get"], {
+      stdout: {
+        write: (chunk) => {
+          stdout += chunk;
+          return true;
+        }
+      },
+      readFile: async () => ""
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe("");
+  });
+
+  it("rejects extra args for config get", async () => {
+    let stderr = "";
+
+    const exitCode = await main(["config", "get", "extra"], {
+      stderr: {
+        write: (chunk) => {
+          stderr += chunk;
+          return true;
+        }
+      },
+      readFile: async () => ""
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("usage: agent-notify config <get|set|unset> ...");
   });
 
   it("writes sound_file with config set sound-file", async () => {
@@ -243,6 +277,26 @@ describe("main", () => {
     );
   });
 
+  it("rejects extra args for config set sound-file", async () => {
+    let stderr = "";
+
+    const exitCode = await main(
+      ["config", "set", "sound-file", "/tmp/ding.wav", "extra"],
+      {
+        stderr: {
+          write: (chunk) => {
+            stderr += chunk;
+            return true;
+          }
+        },
+        readFile: async () => ""
+      }
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("usage: agent-notify config <get|set|unset> ...");
+  });
+
   it("removes only sound_file with config unset sound-file", async () => {
     const writeFile = vi.fn(
       async (_path: string, _content: string, _encoding: BufferEncoding) => {}
@@ -251,15 +305,36 @@ describe("main", () => {
     const exitCode = await main(["config", "unset", "sound-file"], {
       writeFile,
       readFile: async () =>
-        ['desktop_enabled = false', 'sound_file = "/tmp/ding.wav"'].join("\n")
+        [
+          "desktop_enabled = false",
+          'sound_file = "/tmp/ding.wav"',
+          "sound_enabled = true"
+        ].join("\n")
     });
 
     expect(exitCode).toBe(0);
     expect(writeFile).toHaveBeenCalledWith(
       expect.any(String),
-      expect.not.stringContaining("sound_file"),
+      "desktop_enabled = false\nsound_enabled = true",
       "utf8"
     );
+  });
+
+  it("rejects extra args for config unset sound-file", async () => {
+    let stderr = "";
+
+    const exitCode = await main(["config", "unset", "sound-file", "extra"], {
+      stderr: {
+        write: (chunk) => {
+          stderr += chunk;
+          return true;
+        }
+      },
+      readFile: async () => ""
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("usage: agent-notify config <get|set|unset> ...");
   });
 
   it("returns non-zero for invalid CLI input", async () => {

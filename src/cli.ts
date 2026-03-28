@@ -175,14 +175,23 @@ async function configCommand(
 ): Promise<number> {
   const configPath = defaultConfigPath();
   const [action, key, value] = argv;
+  const usage = "usage: agent-notify config <get|set|unset> ...";
 
   if (action === "get") {
-    const current = await readExistingText(configPath, runtime.readFile);
-    runtime.stdout.write(current || formatConfigToml(DEFAULT_CONFIG));
+    if (argv.length !== 1) {
+      throw new Error(usage);
+    }
+
+    const current = await readOptionalText(configPath, runtime.readFile);
+    runtime.stdout.write(current ?? formatConfigToml(DEFAULT_CONFIG));
     return 0;
   }
 
-  if (action === "set" && key === "sound-file" && value) {
+  if (action === "set" && key === "sound-file" && value !== undefined) {
+    if (argv.length !== 3) {
+      throw new Error(usage);
+    }
+
     const next = setFlatTomlString(
       await readExistingText(configPath, runtime.readFile),
       "sound_file",
@@ -194,6 +203,10 @@ async function configCommand(
   }
 
   if (action === "unset" && key === "sound-file") {
+    if (argv.length !== 2) {
+      throw new Error(usage);
+    }
+
     const next = unsetFlatTomlKey(
       await readExistingText(configPath, runtime.readFile),
       "sound_file"
@@ -203,7 +216,7 @@ async function configCommand(
     return 0;
   }
 
-  throw new Error("usage: agent-notify config <get|set|unset> ...");
+  throw new Error(usage);
 }
 
 function parseHandleOptions(
@@ -310,11 +323,18 @@ async function readExistingText(
   path: string,
   readText: Required<MainDependencies>["readFile"]
 ): Promise<string> {
+  return (await readOptionalText(path, readText)) ?? "";
+}
+
+async function readOptionalText(
+  path: string,
+  readText: Required<MainDependencies>["readFile"]
+): Promise<string | undefined> {
   try {
     return await readText(path, "utf8");
   } catch (error) {
     if (isMissingFileError(error)) {
-      return "";
+      return undefined;
     }
     throw error;
   }
