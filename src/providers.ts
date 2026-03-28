@@ -1,6 +1,7 @@
 import { access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { execFile } from "node:child_process";
+import { delimiter, join } from "node:path";
 import type { NormalizedEvent } from "./events.js";
 
 export interface DeliveryProvider {
@@ -11,6 +12,7 @@ export interface DesktopProviderOptions {
   commandExists?: (command: string) => boolean | Promise<boolean>;
   run?: (command: readonly string[]) => Promise<{ ok: boolean }>;
   isWsl?: () => boolean;
+  platform?: NodeJS.Platform;
 }
 
 export interface SoundProviderOptions {
@@ -19,17 +21,21 @@ export interface SoundProviderOptions {
   writeTerminalBell?: () => void | Promise<void>;
   writeStdoutBell?: () => void | Promise<void>;
   isWsl?: () => boolean;
+  platform?: NodeJS.Platform;
+  soundFile?: string;
 }
 
 export class DesktopProvider implements DeliveryProvider {
   private readonly commandExists: Required<DesktopProviderOptions>["commandExists"];
   private readonly run: Required<DesktopProviderOptions>["run"];
   private readonly isWsl: Required<DesktopProviderOptions>["isWsl"];
+  private readonly platform: NodeJS.Platform;
 
   constructor(options: DesktopProviderOptions = {}) {
     this.commandExists = options.commandExists ?? commandAvailable;
     this.run = options.run ?? runCommand;
     this.isWsl = options.isWsl ?? defaultIsWsl;
+    this.platform = options.platform ?? process.platform;
   }
 
   async send(event: NormalizedEvent): Promise<boolean> {
@@ -50,7 +56,10 @@ export class DesktopProvider implements DeliveryProvider {
       return this.execute(["notify-send", title, event.summary]);
     }
 
-    if (this.isWsl() && (await this.commandExists("powershell.exe"))) {
+    if (
+      (this.platform === "win32" || this.isWsl()) &&
+      (await this.commandExists("powershell.exe"))
+    ) {
       return this.execute([
         "powershell.exe",
         "-NoProfile",
@@ -78,6 +87,8 @@ export class SoundProvider implements DeliveryProvider {
   private readonly writeTerminalBell: Required<SoundProviderOptions>["writeTerminalBell"];
   private readonly writeStdoutBell: Required<SoundProviderOptions>["writeStdoutBell"];
   private readonly isWsl: Required<SoundProviderOptions>["isWsl"];
+  private readonly platform: NodeJS.Platform;
+  private readonly soundFile?: string;
 
   constructor(options: SoundProviderOptions = {}) {
     this.commandExists = options.commandExists ?? commandAvailable;
@@ -85,37 +96,47 @@ export class SoundProvider implements DeliveryProvider {
     this.writeTerminalBell = options.writeTerminalBell ?? defaultWriteTerminalBell;
     this.writeStdoutBell = options.writeStdoutBell ?? defaultWriteStdoutBell;
     this.isWsl = options.isWsl ?? defaultIsWsl;
+    this.platform = options.platform ?? process.platform;
+    this.soundFile = options.soundFile;
   }
 
   async send(_event: NormalizedEvent): Promise<boolean> {
-    for (const command of SOUND_COMMANDS) {
+    if (
+      this.soundFile &&
+      (this.platform === "win32" || this.isWsl()) &&
+      (await this.commandExists("powershell.exe"))
+    ) {
+      const sent = await this.execute([
+        "powershell.exe",
+        "-NoProfile",
+        "-Command",
+        buildWindowsSoundScript(this.soundFile)
+      ]);
+      if (sent) {
+        return true;
+      }
+    }
+
+    for (const command of getSoundCommands(this.soundFile)) {
       if (!(await this.commandExists(command.name))) {
         continue;
       }
 
-      try {
-        const result = await this.run(command.args);
-        if (result.ok) {
-          return true;
-        }
-      } catch {
-        continue;
+      const sent = await this.execute(command.args);
+      if (sent) {
+        return true;
       }
     }
 
-    if (this.isWsl() && (await this.commandExists("powershell.exe"))) {
-      try {
-        const result = await this.run([
-          "powershell.exe",
-          "-NoProfile",
-          "-Command",
-          "[console]::beep(880,200)"
-        ]);
-        if (result.ok) {
-          return true;
-        }
-      } catch {
-        // Fall through to terminal bell fallback.
+    if ((this.platform === "win32" || this.isWsl()) && (await this.commandExists("powershell.exe"))) {
+      const sent = await this.execute([
+        "powershell.exe",
+        "-NoProfile",
+        "-Command",
+        "[console]::beep(880,200)"
+      ]);
+      if (sent) {
+        return true;
       }
     }
 
@@ -131,14 +152,38 @@ export class SoundProvider implements DeliveryProvider {
       }
     }
   }
+
+  private async execute(command: readonly string[]): Promise<boolean> {
+    try {
+      const result = await this.run(command);
+      return result.ok;
+    } catch {
+      return false;
+    }
+  }
 }
 
-const SOUND_COMMANDS = [
+const DEFAULT_SOUND_COMMANDS = [
   { name: "osascript", args: ["osascript", "-e", "beep 1"] },
   { name: "paplay", args: ["paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"] },
   { name: "aplay", args: ["aplay", "/usr/share/sounds/alsa/Front_Center.wav"] },
   { name: "afplay", args: ["afplay", "/System/Library/Sounds/Glass.aiff"] }
 ] as const;
+
+function getSoundCommands(soundFile?: string): readonly {
+  readonly name: string;
+  readonly args: readonly string[];
+}[] {
+  if (!soundFile) {
+    return DEFAULT_SOUND_COMMANDS;
+  }
+
+  return [
+    { name: "paplay", args: ["paplay", soundFile] },
+    { name: "aplay", args: ["aplay", soundFile] },
+    { name: "afplay", args: ["afplay", soundFile] }
+  ];
+}
 
 export function formatNotificationTitle(event: Pick<NormalizedEvent, "tool" | "project" | "state">): string {
   return `[${event.tool}] ${event.project} · ${event.state}`;
@@ -150,13 +195,13 @@ async function commandAvailable(command: string): Promise<boolean> {
     return false;
   }
 
-  for (const directory of pathValue.split(":")) {
+  for (const directory of pathValue.split(delimiter)) {
     if (!directory) {
       continue;
     }
 
     try {
-      await access(`${directory}/${command}`, fsConstants.X_OK);
+      await access(join(directory, command), fsConstants.X_OK);
       return true;
     } catch {
       continue;
@@ -221,6 +266,13 @@ function buildWindowsToastScript(title: string, summary: string): string {
     "$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)",
     "$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('agent-notify')",
     "$notifier.Show($toast)"
+  ].join("; ");
+}
+
+function buildWindowsSoundScript(soundFile: string): string {
+  return [
+    `$player = New-Object System.Media.SoundPlayer '${escapePowerShellSingleQuotedString(soundFile)}'`,
+    "$player.PlaySync()"
   ].join("; ");
 }
 

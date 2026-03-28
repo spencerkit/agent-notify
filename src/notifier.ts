@@ -30,8 +30,14 @@ export class Notifier {
   constructor(options: NotifierOptions) {
     this.config = options.config;
     this.store = options.store;
-    this.desktopProvider = options.desktopProvider ?? new DesktopProvider();
-    this.soundProvider = options.soundProvider ?? new SoundProvider();
+    this.desktopProvider =
+      options.desktopProvider ?? new DesktopProvider({ platform: process.platform });
+    this.soundProvider =
+      options.soundProvider ??
+      new SoundProvider({
+        platform: process.platform,
+        soundFile: this.config.soundFile
+      });
   }
 
   async notify(event: NormalizedEvent): Promise<NotifyResult> {

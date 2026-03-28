@@ -219,6 +219,27 @@ describe("providers", () => {
     expect(commands[0]?.[3]).toContain("Needs attention");
   });
 
+  it("uses PowerShell toast delivery on native Windows", async () => {
+    const commands: Array<readonly string[]> = [];
+    const provider = new DesktopProvider({
+      platform: "win32",
+      commandExists: (command) => command === "powershell.exe",
+      run: async (command) => {
+        commands.push(command);
+        return { ok: true };
+      },
+      isWsl: () => false
+    });
+
+    const sent = await provider.send(
+      makeEvent({ tool: "claude", state: "failed", project: "demo", summary: "Needs attention" })
+    );
+
+    expect(sent).toBe(true);
+    expect(commands[0]?.[0]).toBe("powershell.exe");
+    expect(commands[0]?.[3]).toContain("ToastNotificationManager");
+  });
+
   it("uses notify-send when osascript fails at runtime", async () => {
     const commands: Array<readonly string[]> = [];
     const provider = new DesktopProvider({
@@ -304,6 +325,45 @@ describe("providers", () => {
     expect(commands).toEqual([
       ["powershell.exe", "-NoProfile", "-Command", "[console]::beep(880,200)"]
     ]);
+  });
+
+  it("uses the configured sound file through PowerShell on Windows-family runtimes", async () => {
+    const commands: Array<readonly string[]> = [];
+    const provider = new SoundProvider({
+      platform: "win32",
+      soundFile: "C:\\Users\\spencer\\ding.wav",
+      commandExists: (command) => command === "powershell.exe",
+      run: async (command) => {
+        commands.push(command);
+        return { ok: true };
+      },
+      isWsl: () => false
+    });
+
+    const sent = await provider.send(makeEvent({ state: "failed" }));
+
+    expect(sent).toBe(true);
+    expect(commands[0]?.[3]).toContain("System.Media.SoundPlayer");
+    expect(commands[0]?.[3]).toContain("C:\\Users\\spencer\\ding.wav");
+  });
+
+  it("falls back from a failed custom sound command to the next sound mechanism", async () => {
+    const commands: Array<readonly string[]> = [];
+    const provider = new SoundProvider({
+      platform: "linux",
+      soundFile: "/tmp/ding.wav",
+      commandExists: (command) => command === "paplay",
+      run: async (command) => {
+        commands.push(command);
+        throw new Error("paplay failed");
+      },
+      writeTerminalBell: async () => {}
+    });
+
+    const sent = await provider.send(makeEvent({ state: "failed" }));
+
+    expect(sent).toBe(true);
+    expect(commands).toEqual([["paplay", "/tmp/ding.wav"]]);
   });
 
   it("falls back to stdout BEL when the TTY BEL write fails", async () => {
