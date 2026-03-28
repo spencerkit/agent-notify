@@ -208,6 +208,12 @@ describe("main", () => {
 
   it("prints stable TOML defaults for config get when the global config file is missing", async () => {
     let stdout = "";
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () => {
+      const error = new Error("missing") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      throw error;
+    });
 
     const exitCode = await main(["config", "get"], {
       stdout: {
@@ -216,19 +222,18 @@ describe("main", () => {
           return true;
         }
       },
-      readFile: async () => {
-        const error = new Error("missing") as NodeJS.ErrnoException;
-        error.code = "ENOENT";
-        throw error;
-      }
+      readFile
     });
 
     expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
     expect(stdout).toBe(formatConfigToml(DEFAULT_CONFIG));
   });
 
   it("prints the existing empty global config file as-is for config get", async () => {
     let stdout = "";
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () => "");
 
     const exitCode = await main(["config", "get"], {
       stdout: {
@@ -237,10 +242,11 @@ describe("main", () => {
           return true;
         }
       },
-      readFile: async () => ""
+      readFile
     });
 
     expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
     expect(stdout).toBe("");
   });
 
@@ -267,14 +273,16 @@ describe("main", () => {
       async (_path: string, _content: string, _encoding: BufferEncoding) => {}
     );
     const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () => "");
 
     const exitCode = await main(["config", "set", "sound-file", "/tmp/ding.wav"], {
       mkdir,
       writeFile,
-      readFile: async () => ""
+      readFile
     });
 
     expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
     expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
     expect(writeFile).toHaveBeenCalledWith(
       configPath,
@@ -309,19 +317,22 @@ describe("main", () => {
       async (_path: string, _content: string, _encoding: BufferEncoding) => {}
     );
     const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () =>
+      [
+        "desktop_enabled = false",
+        'sound_file = "/tmp/ding.wav"',
+        "sound_enabled = true"
+      ].join("\n")
+    );
 
     const exitCode = await main(["config", "unset", "sound-file"], {
       mkdir,
       writeFile,
-      readFile: async () =>
-        [
-          "desktop_enabled = false",
-          'sound_file = "/tmp/ding.wav"',
-          "sound_enabled = true"
-        ].join("\n")
+      readFile
     });
 
     expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
     expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
     expect(writeFile).toHaveBeenCalledWith(
       configPath,
