@@ -11,4 +11,13 @@ describe("README", () => {
     expect(readme).toContain("agent-notify install codex");
     expect(readme).toContain("agent-notify install claude");
   });
+
+  it("documents config commands and custom sound setup", () => {
+    const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+
+    expect(readme).toContain("agent-notify config get");
+    expect(readme).toContain("agent-notify config set sound-file");
+    expect(readme).toContain("sound_file");
+    expect(readme).toContain("WSL -> Windows toast notifications");
+  });
 });

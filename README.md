@@ -113,11 +113,33 @@ If the JSON payload is omitted for `handle`, the CLI reads it from stdin.
 - repo override: `.agent-notify.toml`
 - state dir: `~/.local/state/agent-notify`
 
+## Configure Sound
+
+Inspect the current global config or set a custom sound file:
+
+```bash
+agent-notify config get
+agent-notify config set sound-file /absolute/path/to/ding.wav
+agent-notify config unset sound-file
+```
+
+`agent-notify` stores global config in `~/.config/agent-notify/config.toml`.
+
+Example:
+
+```toml
+sound_file = "/absolute/path/to/ding.wav"
+```
+
 ## Notification Behavior
 
 - `Notification` maps to `needs_input`
 - `Stop` maps to `completed`
 - `StopFailure` maps to `failed`
+- WSL -> Windows toast notifications
+- Windows -> Windows toast notifications
+- macOS -> `osascript`
+- Linux -> `notify-send`
 - desktop delivery falls back across supported local mechanisms
 - repeated events are suppressed for a short dedupe window
 - provider failures are fail-open and should not block agent execution
