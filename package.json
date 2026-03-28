@@ -2,7 +2,16 @@
   "name": "@spencer-kit/agent-notify",
   "version": "0.1.0",
   "description": "CLI notifications for Codex and Claude Code task completion and attention events",
+  "license": "MIT",
   "type": "module",
+  "homepage": "https://github.com/spencerkit/agent-notify#readme",
+  "bugs": {
+    "url": "https://github.com/spencerkit/agent-notify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spencerkit/agent-notify.git"
+  },
   "publishConfig": {
     "access": "public"
   },
