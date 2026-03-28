@@ -109,7 +109,7 @@ If the JSON payload is omitted for `handle`, the CLI reads it from stdin.
 
 - Codex config: `~/.codex/config.toml`
 - Claude settings: `~/.claude/settings.json`
-- global config: `~/.config/agent-notify/config.toml`
+- global config: `~/.config/agent-notify/config.toml` by default, or `$XDG_CONFIG_HOME/agent-notify/config.toml` when `XDG_CONFIG_HOME` is set
 - repo override: `.agent-notify.toml`
 - state dir: `~/.local/state/agent-notify`
 
@@ -123,7 +123,7 @@ agent-notify config set sound-file /absolute/path/to/ding.wav
 agent-notify config unset sound-file
 ```
 
-`agent-notify` stores global config in `~/.config/agent-notify/config.toml`.
+`agent-notify` stores global config in `~/.config/agent-notify/config.toml` by default, or `$XDG_CONFIG_HOME/agent-notify/config.toml` when `XDG_CONFIG_HOME` is set.
 
 Example:
 

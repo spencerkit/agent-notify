@@ -17,7 +17,13 @@ describe("README", () => {
 
     expect(readme).toContain("agent-notify config get");
     expect(readme).toContain("agent-notify config set sound-file");
+    expect(readme).toContain("agent-notify config unset sound-file");
     expect(readme).toContain("sound_file");
+    expect(readme).toContain("~/.config/agent-notify/config.toml` by default");
+    expect(readme).toContain("$XDG_CONFIG_HOME/agent-notify/config.toml");
     expect(readme).toContain("WSL -> Windows toast notifications");
+    expect(readme).toContain("Windows -> Windows toast notifications");
+    expect(readme).toContain("macOS -> `osascript`");
+    expect(readme).toContain("Linux -> `notify-send`");
   });
 });
