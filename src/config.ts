@@ -11,6 +11,7 @@ export interface AppConfig {
   maxLogEntries: number;
   maxLogAgeDays: number;
   summaryLength: number;
+  soundFile?: string;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -32,7 +33,8 @@ const FILE_KEY_MAP = {
   dedupe_seconds: "dedupeSeconds",
   max_log_entries: "maxLogEntries",
   max_log_age_days: "maxLogAgeDays",
-  summary_length: "summaryLength"
+  summary_length: "summaryLength",
+  sound_file: "soundFile"
 } as const satisfies Record<string, AppConfigKey>;
 
 const ENV_KEY_MAP = {
@@ -113,8 +115,45 @@ export function loadConfig(cwd?: string): AppConfig {
     summaryLength: coerceInteger(
       mergedRaw.summaryLength,
       DEFAULT_CONFIG.summaryLength
-    )
+    ),
+    soundFile: coerceString(mergedRaw.soundFile)
   };
+}
+
+export function formatConfigToml(config: AppConfig): string {
+  return (
+    [
+      `desktop_enabled = ${config.desktopEnabled}`,
+      `sound_enabled = ${config.soundEnabled}`,
+      `sound_on_completed = ${config.soundOnCompleted}`,
+      `dedupe_seconds = ${config.dedupeSeconds}`,
+      `max_log_entries = ${config.maxLogEntries}`,
+      `max_log_age_days = ${config.maxLogAgeDays}`,
+      `summary_length = ${config.summaryLength}`,
+      ...(config.soundFile
+        ? [`sound_file = ${JSON.stringify(config.soundFile)}`]
+        : [])
+    ].join("\n") + "\n"
+  );
+}
+
+export function setFlatTomlString(
+  source: string,
+  key: string,
+  value: string
+): string {
+  const assignment = `${key} = ${JSON.stringify(value)}`;
+  return upsertFlatTomlLine(source, key, assignment);
+}
+
+export function unsetFlatTomlKey(source: string, key: string): string {
+  return source
+    .split(/\r?\n/)
+    .filter((line) => line.trim() === "" || !line.trim().startsWith(`${key} =`))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd()
+    .concat("\n");
 }
 
 export function shouldPlaySound(
@@ -209,6 +248,11 @@ function coerceInteger(value: string | undefined, fallback: number): number {
   return Number.isNaN(parsed) ? fallback : parsed;
 }
 
+function coerceString(value: string | undefined): string | undefined {
+  const normalized = unquote(value ?? "").trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function unquote(value: string): string {
   const trimmed = value.trim();
   if (
@@ -227,4 +271,27 @@ function assignRawConfigValue(
   value: string
 ): void {
   Object.assign(config, { [key]: value });
+}
+
+function upsertFlatTomlLine(source: string, key: string, assignment: string): string {
+  const lines = source.split(/\r?\n/);
+  let updated = false;
+
+  const nextLines = lines.map((line) => {
+    if (line.trim().startsWith(`${key} =`)) {
+      updated = true;
+      return assignment;
+    }
+
+    return line;
+  });
+
+  if (!updated) {
+    while (nextLines.length > 0 && nextLines.at(-1) === "") {
+      nextLines.pop();
+    }
+    nextLines.push(assignment);
+  }
+
+  return nextLines.join("\n").trimEnd().concat("\n");
 }

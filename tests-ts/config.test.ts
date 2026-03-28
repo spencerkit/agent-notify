@@ -8,7 +8,9 @@ import {
   defaultStateDir,
   findRepoConfig,
   loadConfig,
-  shouldPlaySound
+  setFlatTomlString,
+  shouldPlaySound,
+  unsetFlatTomlKey
 } from "../src/config.js";
 
 const cleanupPaths: string[] = [];
@@ -218,6 +220,37 @@ describe("config helpers", () => {
     await writeFile(repoConfig, 'sound_enabled = "bogus"\n');
 
     expect(loadConfig(cwd).soundEnabled).toBe(true);
+  });
+
+  it("parses sound_file from the highest-precedence config source", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-notify-config-sound-file-"));
+    cleanupPaths.push(root);
+
+    const xdgConfigHome = join(root, "xdg-config");
+    const globalConfig = join(xdgConfigHome, "agent-notify", "config.toml");
+    const repoRoot = join(root, "repo");
+    const repoConfig = join(repoRoot, ".agent-notify.toml");
+    const cwd = join(repoRoot, "nested");
+
+    process.env.XDG_CONFIG_HOME = xdgConfigHome;
+
+    await mkdir(dirname(globalConfig), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(globalConfig, 'sound_file = "/global/chime.wav"\n');
+    await writeFile(repoConfig, 'sound_file = "/repo/override.wav"\n');
+
+    expect(loadConfig(cwd).soundFile).toBe("/repo/override.wav");
+  });
+
+  it("upserts and unsets sound_file while preserving unrelated TOML keys", () => {
+    const source = ['desktop_enabled = false', 'custom_key = "keep-me"'].join("\n");
+
+    expect(setFlatTomlString(source, "sound_file", "/tmp/ding.wav")).toContain(
+      'sound_file = "/tmp/ding.wav"'
+    );
+    expect(
+      unsetFlatTomlKey(source + '\nsound_file = "/tmp/ding.wav"\n', "sound_file")
+    ).toContain('custom_key = "keep-me"');
   });
 
   it("uses XDG directories when set and falls back under the home directory", () => {
