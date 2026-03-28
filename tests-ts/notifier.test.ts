@@ -194,10 +194,11 @@ describe("providers", () => {
     expect(commands).toEqual([["notify-send", "[claude] demo · failed", "Needs attention"]]);
   });
 
-  it("uses powershell.exe when running in WSL and Linux desktop commands are unavailable", async () => {
+  it("prefers powershell.exe when running in WSL even if Unix desktop commands are available", async () => {
     const commands: Array<readonly string[]> = [];
     const provider = new DesktopProvider({
-      commandExists: (command) => command === "powershell.exe",
+      commandExists: (command) =>
+        command === "powershell.exe" || command === "osascript" || command === "notify-send",
       run: async (command) => {
         commands.push(command);
         return { ok: true };
@@ -219,11 +220,12 @@ describe("providers", () => {
     expect(commands[0]?.[3]).toContain("Needs attention");
   });
 
-  it("uses PowerShell toast delivery on native Windows", async () => {
+  it("uses PowerShell toast delivery on native Windows ahead of Unix desktop commands", async () => {
     const commands: Array<readonly string[]> = [];
     const provider = new DesktopProvider({
       platform: "win32",
-      commandExists: (command) => command === "powershell.exe",
+      commandExists: (command) =>
+        command === "powershell.exe" || command === "osascript" || command === "notify-send",
       run: async (command) => {
         commands.push(command);
         return { ok: true };

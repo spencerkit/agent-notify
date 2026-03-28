@@ -41,6 +41,21 @@ export class DesktopProvider implements DeliveryProvider {
   async send(event: NormalizedEvent): Promise<boolean> {
     const title = formatNotificationTitle(event);
 
+    if (
+      (this.platform === "win32" || this.isWsl()) &&
+      (await this.commandExists("powershell.exe"))
+    ) {
+      const sent = await this.execute([
+        "powershell.exe",
+        "-NoProfile",
+        "-Command",
+        buildWindowsToastScript(title, event.summary)
+      ]);
+      if (sent) {
+        return true;
+      }
+    }
+
     if (await this.commandExists("osascript")) {
       const sent = await this.execute([
         "osascript",
@@ -54,18 +69,6 @@ export class DesktopProvider implements DeliveryProvider {
 
     if (await this.commandExists("notify-send")) {
       return this.execute(["notify-send", title, event.summary]);
-    }
-
-    if (
-      (this.platform === "win32" || this.isWsl()) &&
-      (await this.commandExists("powershell.exe"))
-    ) {
-      return this.execute([
-        "powershell.exe",
-        "-NoProfile",
-        "-Command",
-        buildWindowsToastScript(title, event.summary)
-      ]);
     }
 
     return false;
