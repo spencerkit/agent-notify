@@ -391,7 +391,7 @@ describe("providers", () => {
     ]);
   });
 
-  it("uses the configured sound file through PowerShell on Windows-family runtimes", async () => {
+  it("uses a non-blocking PowerShell launcher for configured sound files on Windows-family runtimes", async () => {
     const commands: Array<readonly string[]> = [];
     const provider = new SoundProvider({
       platform: "win32",
@@ -407,8 +407,40 @@ describe("providers", () => {
     const sent = await provider.send(makeEvent({ state: "failed" }));
 
     expect(sent).toBe(true);
+    expect(commands[0]?.[3]).toContain("Start-Process");
     expect(commands[0]?.[3]).toContain("System.Media.SoundPlayer");
     expect(commands[0]?.[3]).toContain("C:\\Users\\spencer\\ding.wav");
+  });
+
+  it("converts WSL custom sound paths before building the PowerShell sound script", async () => {
+    const commands: Array<readonly string[]> = [];
+    const previousDistro = process.env.WSL_DISTRO_NAME;
+    process.env.WSL_DISTRO_NAME = "Ubuntu-24.04";
+
+    try {
+      const provider = new SoundProvider({
+        platform: "linux",
+        soundFile: "/tmp/ding.wav",
+        commandExists: (command) => command === "powershell.exe",
+        run: async (command) => {
+          commands.push(command);
+          return { ok: true };
+        },
+        isWsl: () => true
+      });
+
+      const sent = await provider.send(makeEvent({ state: "failed" }));
+
+      expect(sent).toBe(true);
+      expect(commands[0]?.[0]).toBe("powershell.exe");
+      expect(commands[0]?.[3]).toContain("\\\\wsl.localhost\\Ubuntu-24.04\\tmp\\ding.wav");
+    } finally {
+      if (previousDistro === undefined) {
+        delete process.env.WSL_DISTRO_NAME;
+      } else {
+        process.env.WSL_DISTRO_NAME = previousDistro;
+      }
+    }
   });
 
   it("falls through from failed Windows custom sound playback to a later mechanism", async () => {

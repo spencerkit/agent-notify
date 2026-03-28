@@ -109,11 +109,12 @@ export class SoundProvider implements DeliveryProvider {
       (this.platform === "win32" || this.isWsl()) &&
       (await this.commandExists("powershell.exe"))
     ) {
+      const windowsSoundFile = toWindowsReadableSoundPath(this.soundFile, this.isWsl());
       const sent = await this.execute([
         "powershell.exe",
         "-NoProfile",
         "-Command",
-        buildWindowsSoundScript(this.soundFile)
+        buildWindowsSoundScript(windowsSoundFile)
       ]);
       if (sent) {
         return true;
@@ -273,10 +274,39 @@ function buildWindowsToastScript(title: string, summary: string): string {
 }
 
 function buildWindowsSoundScript(soundFile: string): string {
-  return [
+  const innerScript = [
     `$player = New-Object System.Media.SoundPlayer '${escapePowerShellSingleQuotedString(soundFile)}'`,
     "$player.PlaySync()"
   ].join("; ");
+
+  return [
+    "Start-Process powershell.exe",
+    "-WindowStyle Hidden",
+    `-ArgumentList @('-NoProfile', '-Command', '${escapePowerShellSingleQuotedString(innerScript)}')`
+  ].join(" ");
+}
+
+function toWindowsReadableSoundPath(soundFile: string, isWsl: boolean): string {
+  if (!isWsl || looksLikeWindowsPath(soundFile)) {
+    return soundFile;
+  }
+
+  const mountedDriveMatch = soundFile.match(/^\/mnt\/([a-zA-Z])\/(.*)$/);
+  if (mountedDriveMatch) {
+    const [, driveLetter, relativePath] = mountedDriveMatch;
+    return `${driveLetter.toUpperCase()}:\\${relativePath.replaceAll("/", "\\")}`;
+  }
+
+  const distroName = process.env.WSL_DISTRO_NAME;
+  if (!distroName) {
+    return soundFile;
+  }
+
+  return `\\\\wsl.localhost\\${distroName}${soundFile.replaceAll("/", "\\")}`;
+}
+
+function looksLikeWindowsPath(value: string): boolean {
+  return /^[a-zA-Z]:\\/.test(value) || value.startsWith("\\\\");
 }
 
 function escapeXml(value: string): string {
