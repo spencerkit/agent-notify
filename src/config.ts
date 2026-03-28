@@ -150,10 +150,7 @@ export function unsetFlatTomlKey(source: string, key: string): string {
   return source
     .split(/\r?\n/)
     .filter((line) => line.trim() === "" || !matchesFlatTomlKey(line, key))
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trimEnd()
-    .concat("\n");
+    .join("\n");
 }
 
 export function shouldPlaySound(
@@ -254,10 +251,16 @@ function coerceString(value: string | undefined): string | undefined {
 
 function unquote(value: string): string {
   const trimmed = value.trim();
-  if (
-    (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
+  if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return typeof parsed === "string" ? parsed : trimmed;
+    } catch {
+      return trimmed.slice(1, -1);
+    }
+  }
+
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
     return trimmed.slice(1, -1);
   }
 

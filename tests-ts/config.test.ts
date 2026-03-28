@@ -260,6 +260,30 @@ describe("config helpers", () => {
     expect(loadConfig(cwd).soundFile).toBe("/tmp/#ding.wav");
   });
 
+  it("round-trips escaped sound_file values written in quoted TOML form", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-notify-config-sound-file-escapes-"));
+    cleanupPaths.push(root);
+
+    const xdgConfigHome = join(root, "xdg-config");
+    const globalConfig = join(xdgConfigHome, "agent-notify", "config.toml");
+    const cwd = join(root, "workspace");
+    const soundFile = String.raw`C:\tmp\say "ding".wav`;
+
+    process.env.XDG_CONFIG_HOME = xdgConfigHome;
+
+    await mkdir(dirname(globalConfig), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(
+      globalConfig,
+      formatConfigToml({
+        ...DEFAULT_CONFIG,
+        soundFile
+      })
+    );
+
+    expect(loadConfig(cwd).soundFile).toBe(soundFile);
+  });
+
   it("upserts and unsets sound_file while preserving unrelated TOML keys", () => {
     const source = ['desktop_enabled = false', 'custom_key = "keep-me"'].join("\n");
     const withSoundFile = setFlatTomlString(source, "sound_file", "/tmp/ding.wav");
@@ -296,6 +320,31 @@ describe("config helpers", () => {
     );
     expect(unsetFlatTomlKey(source, "sound_file")).toBe(
       ['desktop_enabled = false', 'custom_key = "keep-me"', ""].join("\n")
+    );
+  });
+
+  it("preserves unrelated blank lines and comments when unsetting a key", () => {
+    const source = [
+      "desktop_enabled = false",
+      "",
+      "# keep this comment",
+      'sound_file = "/tmp/ding.wav"',
+      "",
+      "",
+      'custom_key = "keep-me"',
+      ""
+    ].join("\n");
+
+    expect(unsetFlatTomlKey(source, "sound_file")).toBe(
+      [
+        "desktop_enabled = false",
+        "",
+        "# keep this comment",
+        "",
+        "",
+        'custom_key = "keep-me"',
+        ""
+      ].join("\n")
     );
   });
 
