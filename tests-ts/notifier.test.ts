@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DesktopProvider, SoundProvider } from "../src/providers.js";
 import { Notifier } from "../src/notifier.js";
 import { makeEvent } from "./test-helpers.js";
@@ -148,6 +148,68 @@ describe("Notifier", () => {
       soundSent: false
     });
     expect(recorded).toBe(1);
+  });
+
+  it("passes process platform and configured sound file into default providers", async () => {
+    const desktopOptions: unknown[] = [];
+    const soundOptions: unknown[] = [];
+
+    vi.resetModules();
+    vi.doMock("../src/providers.js", () => {
+      class MockDesktopProvider {
+        constructor(options: unknown) {
+          desktopOptions.push(options);
+        }
+
+        async send(): Promise<boolean> {
+          return true;
+        }
+      }
+
+      class MockSoundProvider {
+        constructor(options: unknown) {
+          soundOptions.push(options);
+        }
+
+        async send(): Promise<boolean> {
+          return true;
+        }
+      }
+
+      return {
+        DesktopProvider: MockDesktopProvider,
+        SoundProvider: MockSoundProvider
+      };
+    });
+
+    try {
+      const { Notifier: MockedNotifier } = await import("../src/notifier.js");
+
+      new MockedNotifier({
+        config: {
+          desktopEnabled: true,
+          soundEnabled: true,
+          soundOnCompleted: true,
+          dedupeSeconds: 15,
+          maxLogEntries: 10,
+          maxLogAgeDays: 7,
+          summaryLength: 180,
+          soundFile: "/tmp/ding.wav"
+        },
+        store: {
+          shouldEmit: async () => true,
+          record: async () => {}
+        }
+      });
+
+      expect(desktopOptions).toEqual([{ platform: process.platform }]);
+      expect(soundOptions).toEqual([
+        { platform: process.platform, soundFile: "/tmp/ding.wav" }
+      ]);
+    } finally {
+      vi.doUnmock("../src/providers.js");
+      vi.resetModules();
+    }
   });
 });
 
@@ -347,6 +409,31 @@ describe("providers", () => {
     expect(sent).toBe(true);
     expect(commands[0]?.[3]).toContain("System.Media.SoundPlayer");
     expect(commands[0]?.[3]).toContain("C:\\Users\\spencer\\ding.wav");
+  });
+
+  it("falls through from failed Windows custom sound playback to a later mechanism", async () => {
+    const commands: Array<readonly string[]> = [];
+    const provider = new SoundProvider({
+      platform: "win32",
+      soundFile: "C:\\Users\\spencer\\ding.wav",
+      commandExists: (command) => command === "powershell.exe" || command === "paplay",
+      run: async (command) => {
+        commands.push(command);
+        if (command[0] === "powershell.exe") {
+          throw new Error("powershell custom sound failed");
+        }
+        return { ok: true };
+      },
+      isWsl: () => false
+    });
+
+    const sent = await provider.send(makeEvent({ state: "failed" }));
+
+    expect(sent).toBe(true);
+    expect(commands).toHaveLength(2);
+    expect(commands[0]?.[0]).toBe("powershell.exe");
+    expect(commands[0]?.[3]).toContain("System.Media.SoundPlayer");
+    expect(commands[1]).toEqual(["paplay", "C:\\Users\\spencer\\ding.wav"]);
   });
 
   it("falls back from a failed custom sound command to the next sound mechanism", async () => {
