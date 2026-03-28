@@ -200,6 +200,68 @@ describe("main", () => {
     expect(stdout).toContain('notify = ["agent-notify", "handle", "codex"]');
   });
 
+  it("prints stable TOML defaults for config get when the global config file is missing", async () => {
+    let stdout = "";
+
+    const exitCode = await main(["config", "get"], {
+      stdout: {
+        write: (chunk) => {
+          stdout += chunk;
+          return true;
+        }
+      },
+      readFile: async () => {
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      }
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("desktop_enabled = true");
+    expect(stdout).toContain("sound_enabled = true");
+  });
+
+  it("writes sound_file with config set sound-file", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+
+    const exitCode = await main(["config", "set", "sound-file", "/tmp/ding.wav"], {
+      mkdir,
+      writeFile,
+      readFile: async () => ""
+    });
+
+    expect(exitCode).toBe(0);
+    expect(mkdir).toHaveBeenCalled();
+    expect(writeFile).toHaveBeenCalledWith(
+      expect.stringContaining("agent-notify/config.toml"),
+      expect.stringContaining('sound_file = "/tmp/ding.wav"'),
+      "utf8"
+    );
+  });
+
+  it("removes only sound_file with config unset sound-file", async () => {
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+
+    const exitCode = await main(["config", "unset", "sound-file"], {
+      writeFile,
+      readFile: async () =>
+        ['desktop_enabled = false', 'sound_file = "/tmp/ding.wav"'].join("\n")
+    });
+
+    expect(exitCode).toBe(0);
+    expect(writeFile).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.not.stringContaining("sound_file"),
+      "utf8"
+    );
+  });
+
   it("returns non-zero for invalid CLI input", async () => {
     let stderr = "";
 

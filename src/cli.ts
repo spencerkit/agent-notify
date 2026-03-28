@@ -5,7 +5,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defaultStateDir, loadConfig } from "./config.js";
+import {
+  DEFAULT_CONFIG,
+  defaultConfigPath,
+  defaultStateDir,
+  formatConfigToml,
+  loadConfig,
+  setFlatTomlString,
+  unsetFlatTomlKey
+} from "./config.js";
 import { parseEvent } from "./events.js";
 import {
   buildClaudeCommandPrefix,
@@ -72,6 +80,10 @@ export async function main(
 
     if (command === "install") {
       return await installCommand(rest, io);
+    }
+
+    if (command === "config") {
+      return await configCommand(rest, io);
     }
 
     throw new Error(`unknown command: ${command}`);
@@ -155,6 +167,43 @@ async function installCommand(
   await runtime.writeFile(path, updatedText, "utf8");
   runtime.stdout.write(updatedText);
   return 0;
+}
+
+async function configCommand(
+  argv: readonly string[],
+  runtime: Required<MainDependencies>
+): Promise<number> {
+  const configPath = defaultConfigPath();
+  const [action, key, value] = argv;
+
+  if (action === "get") {
+    const current = await readExistingText(configPath, runtime.readFile);
+    runtime.stdout.write(current || formatConfigToml(DEFAULT_CONFIG));
+    return 0;
+  }
+
+  if (action === "set" && key === "sound-file" && value) {
+    const next = setFlatTomlString(
+      await readExistingText(configPath, runtime.readFile),
+      "sound_file",
+      value
+    );
+    await runtime.mkdir(dirname(configPath));
+    await runtime.writeFile(configPath, next, "utf8");
+    return 0;
+  }
+
+  if (action === "unset" && key === "sound-file") {
+    const next = unsetFlatTomlKey(
+      await readExistingText(configPath, runtime.readFile),
+      "sound_file"
+    );
+    await runtime.mkdir(dirname(configPath));
+    await runtime.writeFile(configPath, next, "utf8");
+    return 0;
+  }
+
+  throw new Error("usage: agent-notify config <get|set|unset> ...");
 }
 
 function parseHandleOptions(
