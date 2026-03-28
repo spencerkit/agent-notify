@@ -1,6 +1,11 @@
+import { dirname } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { main } from "../src/cli.js";
-import { DEFAULT_CONFIG, formatConfigToml } from "../src/config.js";
+import {
+  DEFAULT_CONFIG,
+  defaultConfigPath,
+  formatConfigToml
+} from "../src/config.js";
 
 describe("main", () => {
   it("routes codex handle payloads from an argument", async () => {
@@ -261,6 +266,7 @@ describe("main", () => {
     const writeFile = vi.fn(
       async (_path: string, _content: string, _encoding: BufferEncoding) => {}
     );
+    const configPath = defaultConfigPath();
 
     const exitCode = await main(["config", "set", "sound-file", "/tmp/ding.wav"], {
       mkdir,
@@ -269,9 +275,9 @@ describe("main", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(mkdir).toHaveBeenCalled();
+    expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
     expect(writeFile).toHaveBeenCalledWith(
-      expect.stringContaining("agent-notify/config.toml"),
+      configPath,
       expect.stringContaining('sound_file = "/tmp/ding.wav"'),
       "utf8"
     );
@@ -298,11 +304,14 @@ describe("main", () => {
   });
 
   it("removes only sound_file with config unset sound-file", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
     const writeFile = vi.fn(
       async (_path: string, _content: string, _encoding: BufferEncoding) => {}
     );
+    const configPath = defaultConfigPath();
 
     const exitCode = await main(["config", "unset", "sound-file"], {
+      mkdir,
       writeFile,
       readFile: async () =>
         [
@@ -313,8 +322,9 @@ describe("main", () => {
     });
 
     expect(exitCode).toBe(0);
+    expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
     expect(writeFile).toHaveBeenCalledWith(
-      expect.any(String),
+      configPath,
       "desktop_enabled = false\nsound_enabled = true",
       "utf8"
     );
