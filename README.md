@@ -142,10 +142,18 @@ This repository is set up for GitHub Actions based publishing to npm when a GitH
 3. In the npm Trusted Publisher configuration, use this repository and this exact workflow filename:
 
 ```text
-.github/workflows/release.yml
+release.yml
 ```
 
 The workflow filename must match exactly or npm trusted publishing will reject the release job.
+
+If this is the very first publish and the package does not exist on npm yet, do one manual bootstrap publish first:
+
+```bash
+npm publish --access public
+```
+
+After the package exists, configure the Trusted Publisher in the package settings and use the GitHub Release flow below for subsequent releases.
 
 ### Release Steps
 

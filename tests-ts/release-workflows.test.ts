@@ -61,6 +61,9 @@ describe("release workflows", () => {
 
     expect(readme).toContain("## Release");
     expect(readme).toContain("GitHub Release");
+    expect(readme).toContain("```text\nrelease.yml\n```");
+    expect(readme).toContain("manual bootstrap publish");
+    expect(readme).toContain("npm publish --access public");
     expect(readme).toContain("git tag v");
     expect(readme).toContain("git push origin main --tags");
     expect(readme).toContain("release.yml");
