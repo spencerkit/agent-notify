@@ -7,6 +7,7 @@ import {
   defaultConfigPath,
   defaultStateDir,
   findRepoConfig,
+  formatConfigToml,
   loadConfig,
   setFlatTomlString,
   shouldPlaySound,
@@ -242,6 +243,23 @@ describe("config helpers", () => {
     expect(loadConfig(cwd).soundFile).toBe("/repo/override.wav");
   });
 
+  it("preserves # characters inside quoted sound_file values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-notify-config-sound-file-hash-"));
+    cleanupPaths.push(root);
+
+    const xdgConfigHome = join(root, "xdg-config");
+    const globalConfig = join(xdgConfigHome, "agent-notify", "config.toml");
+    const cwd = join(root, "workspace");
+
+    process.env.XDG_CONFIG_HOME = xdgConfigHome;
+
+    await mkdir(dirname(globalConfig), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(globalConfig, 'sound_file = "/tmp/#ding.wav"\n');
+
+    expect(loadConfig(cwd).soundFile).toBe("/tmp/#ding.wav");
+  });
+
   it("upserts and unsets sound_file while preserving unrelated TOML keys", () => {
     const source = ['desktop_enabled = false', 'custom_key = "keep-me"'].join("\n");
     const withSoundFile = setFlatTomlString(source, "sound_file", "/tmp/ding.wav");
@@ -257,6 +275,74 @@ describe("config helpers", () => {
     );
     expect(withoutSoundFile).toBe(
       ['desktop_enabled = false', 'custom_key = "keep-me"', ""].join("\n")
+    );
+  });
+
+  it("updates and removes existing sound_file lines with flexible TOML spacing", () => {
+    const source = [
+      'desktop_enabled = false',
+      'sound_file   =   "/tmp/old.wav"',
+      'custom_key = "keep-me"',
+      ""
+    ].join("\n");
+
+    expect(setFlatTomlString(source, "sound_file", "/tmp/new.wav")).toBe(
+      [
+        'desktop_enabled = false',
+        'sound_file = "/tmp/new.wav"',
+        'custom_key = "keep-me"',
+        ""
+      ].join("\n")
+    );
+    expect(unsetFlatTomlKey(source, "sound_file")).toBe(
+      ['desktop_enabled = false', 'custom_key = "keep-me"', ""].join("\n")
+    );
+  });
+
+  it("formats config TOML in stable order with a trailing newline", () => {
+    expect(
+      formatConfigToml({
+        ...DEFAULT_CONFIG,
+        desktopEnabled: false,
+        soundEnabled: false,
+        soundOnCompleted: false,
+        dedupeSeconds: 30,
+        maxLogEntries: 250,
+        maxLogAgeDays: 14,
+        summaryLength: 120
+      })
+    ).toBe(
+      [
+        "desktop_enabled = false",
+        "sound_enabled = false",
+        "sound_on_completed = false",
+        "dedupe_seconds = 30",
+        "max_log_entries = 250",
+        "max_log_age_days = 14",
+        "summary_length = 120",
+        ""
+      ].join("\n")
+    );
+  });
+
+  it("formats config TOML with optional sound_file at the end", () => {
+    expect(
+      formatConfigToml({
+        ...DEFAULT_CONFIG,
+        soundFile: "/tmp/#ding.wav"
+      })
+    ).toBe(
+      [
+        "desktop_enabled = true",
+        "sound_enabled = true",
+        "sound_on_completed = true",
+        "dedupe_seconds = 15",
+        "max_log_entries = 5000",
+        "max_log_age_days = 7",
+        "summary_length = 180",
+        'sound_file = "/tmp/#ding.wav"',
+        ""
+      ].join("\n")
     );
   });
 

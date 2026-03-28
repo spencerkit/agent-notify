@@ -149,7 +149,7 @@ export function setFlatTomlString(
 export function unsetFlatTomlKey(source: string, key: string): string {
   return source
     .split(/\r?\n/)
-    .filter((line) => line.trim() === "" || !line.trim().startsWith(`${key} =`))
+    .filter((line) => line.trim() === "" || !matchesFlatTomlKey(line, key))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trimEnd()
@@ -188,8 +188,7 @@ function parseFlatToml(source: string): RawConfig {
       continue;
     }
 
-    const commentStart = line.indexOf("#");
-    const cleaned = commentStart >= 0 ? line.slice(0, commentStart).trim() : line;
+    const cleaned = stripInlineTomlComment(line);
     const separatorIndex = cleaned.indexOf("=");
     if (separatorIndex < 0) {
       continue;
@@ -278,7 +277,7 @@ function upsertFlatTomlLine(source: string, key: string, assignment: string): st
   let updated = false;
 
   const nextLines = lines.map((line) => {
-    if (line.trim().startsWith(`${key} =`)) {
+    if (matchesFlatTomlKey(line, key)) {
       updated = true;
       return assignment;
     }
@@ -294,4 +293,57 @@ function upsertFlatTomlLine(source: string, key: string, assignment: string): st
   }
 
   return nextLines.join("\n").trimEnd().concat("\n");
+}
+
+function stripInlineTomlComment(line: string): string {
+  const commentIndex = findUnquotedCharacter(line, "#");
+  return (commentIndex >= 0 ? line.slice(0, commentIndex) : line).trim();
+}
+
+function findUnquotedCharacter(line: string, target: string): number {
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+
+    if (quote === "\"") {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+    }
+
+    if (char === "'" || char === "\"") {
+      if (!quote) {
+        quote = char;
+        continue;
+      }
+
+      if (quote === char) {
+        quote = undefined;
+      }
+
+      continue;
+    }
+
+    if (!quote && char === target) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function matchesFlatTomlKey(line: string, key: string): boolean {
+  return new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`).test(line);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
