@@ -280,10 +280,16 @@ function buildWindowsSoundScript(soundFile: string): string {
   ].join("; ");
 
   return [
+    "$ErrorActionPreference = 'Stop'",
+    `$soundFile = '${escapePowerShellSingleQuotedString(soundFile)}'`,
+    "if (-not (Test-Path -LiteralPath $soundFile -PathType Leaf)) { throw 'Sound file not found' }",
+    "$player = New-Object System.Media.SoundPlayer $soundFile",
+    "$player.Load()",
     "Start-Process powershell.exe",
     "-WindowStyle Hidden",
+    "-ErrorAction Stop",
     `-ArgumentList @('-NoProfile', '-Command', '${escapePowerShellSingleQuotedString(innerScript)}')`
-  ].join(" ");
+  ].join("; ");
 }
 
 function toWindowsReadableSoundPath(soundFile: string, isWsl: boolean): string {

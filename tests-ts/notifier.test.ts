@@ -407,7 +407,12 @@ describe("providers", () => {
     const sent = await provider.send(makeEvent({ state: "failed" }));
 
     expect(sent).toBe(true);
+    expect(commands[0]?.[3]).toContain("Test-Path -LiteralPath");
+    expect(commands[0]?.[3]).toContain("$player.Load()");
     expect(commands[0]?.[3]).toContain("Start-Process");
+    expect(commands[0]?.[3].indexOf("$player.Load()")).toBeLessThan(
+      commands[0]?.[3].indexOf("Start-Process")
+    );
     expect(commands[0]?.[3]).toContain("System.Media.SoundPlayer");
     expect(commands[0]?.[3]).toContain("C:\\Users\\spencer\\ding.wav");
   });
@@ -443,7 +448,7 @@ describe("providers", () => {
     }
   });
 
-  it("falls through from failed Windows custom sound playback to a later mechanism", async () => {
+  it("falls through when Windows custom sound validation fails before launching child playback", async () => {
     const commands: Array<readonly string[]> = [];
     const provider = new SoundProvider({
       platform: "win32",
@@ -452,7 +457,7 @@ describe("providers", () => {
       run: async (command) => {
         commands.push(command);
         if (command[0] === "powershell.exe") {
-          throw new Error("powershell custom sound failed");
+          return { ok: false };
         }
         return { ok: true };
       },
@@ -464,6 +469,9 @@ describe("providers", () => {
     expect(sent).toBe(true);
     expect(commands).toHaveLength(2);
     expect(commands[0]?.[0]).toBe("powershell.exe");
+    expect(commands[0]?.[3]).toContain("Test-Path -LiteralPath");
+    expect(commands[0]?.[3]).toContain("$player.Load()");
+    expect(commands[0]?.[3]).toContain("throw");
     expect(commands[0]?.[3]).toContain("System.Media.SoundPlayer");
     expect(commands[1]).toEqual(["paplay", "C:\\Users\\spencer\\ding.wav"]);
   });
