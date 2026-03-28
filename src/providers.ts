@@ -278,6 +278,12 @@ function buildWindowsSoundScript(soundFile: string): string {
     `$player = New-Object System.Media.SoundPlayer '${escapePowerShellSingleQuotedString(soundFile)}'`,
     "$player.PlaySync()"
   ].join("; ");
+  const launchCommand = [
+    "Start-Process powershell.exe",
+    "-WindowStyle Hidden",
+    "-ErrorAction Stop",
+    `-ArgumentList @('-NoProfile', '-Command', '${escapePowerShellSingleQuotedString(innerScript)}')`
+  ].join(" ");
 
   return [
     "$ErrorActionPreference = 'Stop'",
@@ -285,10 +291,7 @@ function buildWindowsSoundScript(soundFile: string): string {
     "if (-not (Test-Path -LiteralPath $soundFile -PathType Leaf)) { throw 'Sound file not found' }",
     "$player = New-Object System.Media.SoundPlayer $soundFile",
     "$player.Load()",
-    "Start-Process powershell.exe",
-    "-WindowStyle Hidden",
-    "-ErrorAction Stop",
-    `-ArgumentList @('-NoProfile', '-Command', '${escapePowerShellSingleQuotedString(innerScript)}')`
+    launchCommand
   ].join("; ");
 }
 

@@ -409,7 +409,10 @@ describe("providers", () => {
     expect(sent).toBe(true);
     expect(commands[0]?.[3]).toContain("Test-Path -LiteralPath");
     expect(commands[0]?.[3]).toContain("$player.Load()");
-    expect(commands[0]?.[3]).toContain("Start-Process");
+    expect(commands[0]?.[3]).toContain(
+      "Start-Process powershell.exe -WindowStyle Hidden -ErrorAction Stop -ArgumentList"
+    );
+    expect(commands[0]?.[3]).not.toContain("Start-Process powershell.exe; -WindowStyle Hidden");
     expect(commands[0]?.[3].indexOf("$player.Load()")).toBeLessThan(
       commands[0]?.[3].indexOf("Start-Process")
     );
@@ -472,6 +475,9 @@ describe("providers", () => {
     expect(commands[0]?.[3]).toContain("Test-Path -LiteralPath");
     expect(commands[0]?.[3]).toContain("$player.Load()");
     expect(commands[0]?.[3]).toContain("throw");
+    expect(commands[0]?.[3]).toContain(
+      "Start-Process powershell.exe -WindowStyle Hidden -ErrorAction Stop -ArgumentList"
+    );
     expect(commands[0]?.[3]).toContain("System.Media.SoundPlayer");
     expect(commands[1]).toEqual(["paplay", "C:\\Users\\spencer\\ding.wav"]);
   });
