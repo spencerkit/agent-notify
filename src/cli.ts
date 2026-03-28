@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { realpathSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +49,7 @@ export interface MainDependencies {
   stderr?: StreamLike;
   readFile?: (path: string, encoding: BufferEncoding) => Promise<string>;
   writeFile?: (path: string, content: string, encoding: BufferEncoding) => Promise<void>;
+  unlink?: (path: string) => Promise<void>;
   mkdir?: (path: string) => Promise<void>;
   createStore?: (stateDir: string, cwd: string) => StoreLike;
   createNotifier?: (tool: Tool, cwd: string, stateDir: string) => NotifierLike;
@@ -207,10 +208,17 @@ async function configCommand(
       throw new Error(usage);
     }
 
-    const next = unsetFlatTomlKey(
-      await readExistingText(configPath, runtime.readFile),
-      "sound_file"
-    );
+    const current = await readOptionalText(configPath, runtime.readFile);
+    if (current === undefined) {
+      return 0;
+    }
+
+    const next = unsetFlatTomlKey(current, "sound_file");
+    if (next.trim().length === 0) {
+      await runtime.unlink(configPath);
+      return 0;
+    }
+
     await runtime.mkdir(dirname(configPath));
     await runtime.writeFile(configPath, next, "utf8");
     return 0;
@@ -377,6 +385,7 @@ function createRuntime(dependencies: MainDependencies): Required<MainDependencie
     stderr: dependencies.stderr ?? process.stderr,
     readFile: dependencies.readFile ?? readFile,
     writeFile: dependencies.writeFile ?? writeFile,
+    unlink: dependencies.unlink ?? unlink,
     mkdir:
       dependencies.mkdir ??
       (async (path) => {

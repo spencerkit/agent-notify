@@ -313,6 +313,7 @@ describe("main", () => {
 
   it("removes only sound_file with config unset sound-file", async () => {
     const mkdir = vi.fn(async (_path: string) => {});
+    const unlink = vi.fn(async (_path: string) => {});
     const writeFile = vi.fn(
       async (_path: string, _content: string, _encoding: BufferEncoding) => {}
     );
@@ -327,6 +328,7 @@ describe("main", () => {
 
     const exitCode = await main(["config", "unset", "sound-file"], {
       mkdir,
+      unlink,
       writeFile,
       readFile
     });
@@ -334,11 +336,85 @@ describe("main", () => {
     expect(exitCode).toBe(0);
     expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
     expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
+    expect(unlink).not.toHaveBeenCalled();
     expect(writeFile).toHaveBeenCalledWith(
       configPath,
       "desktop_enabled = false\nsound_enabled = true",
       "utf8"
     );
+  });
+
+  it("does not create or remove anything when config unset sound-file targets a missing global config file", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
+    const unlink = vi.fn(async (_path: string) => {});
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () => {
+      const error = new Error("missing") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      throw error;
+    });
+
+    const exitCode = await main(["config", "unset", "sound-file"], {
+      mkdir,
+      unlink,
+      writeFile,
+      readFile
+    });
+
+    expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
+    expect(mkdir).not.toHaveBeenCalled();
+    expect(unlink).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it("removes the global config file when config unset sound-file removes the last key", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
+    const unlink = vi.fn(async (_path: string) => {});
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () => 'sound_file = "/tmp/ding.wav"\n');
+
+    const exitCode = await main(["config", "unset", "sound-file"], {
+      mkdir,
+      unlink,
+      writeFile,
+      readFile
+    });
+
+    expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
+    expect(mkdir).not.toHaveBeenCalled();
+    expect(unlink).toHaveBeenCalledWith(configPath);
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it("removes an existing empty global config file on config unset sound-file", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
+    const unlink = vi.fn(async (_path: string) => {});
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () => "");
+
+    const exitCode = await main(["config", "unset", "sound-file"], {
+      mkdir,
+      unlink,
+      writeFile,
+      readFile
+    });
+
+    expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
+    expect(mkdir).not.toHaveBeenCalled();
+    expect(unlink).toHaveBeenCalledWith(configPath);
+    expect(writeFile).not.toHaveBeenCalled();
   });
 
   it("rejects extra args for config unset sound-file", async () => {
