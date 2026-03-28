@@ -20,7 +20,7 @@ describe("release workflows", () => {
     expect(packageJson.publishConfig?.access).toBe("public");
     expect(packageJson.repository).toEqual({
       type: "git",
-      url: "https://github.com/spencerkit/agent-notify.git"
+      url: "git+https://github.com/spencerkit/agent-notify.git"
     });
   });
 
