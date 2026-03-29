@@ -2,7 +2,8 @@ import { access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { execFile } from "node:child_process";
 import { delimiter, join } from "node:path";
-import type { NormalizedEvent } from "./events.js";
+import type { NormalizedEvent, NormalizedState } from "./events.js";
+import { resolveThemeSoundFile } from "./sound-themes.js";
 
 export interface DeliveryProvider {
   send(event: NormalizedEvent): Promise<boolean>;
@@ -23,6 +24,8 @@ export interface SoundProviderOptions {
   isWsl?: () => boolean;
   platform?: NodeJS.Platform;
   soundFile?: string;
+  soundTheme?: string;
+  stateSoundFiles?: Partial<Record<NormalizedState, string>>;
 }
 
 export class DesktopProvider implements DeliveryProvider {
@@ -92,6 +95,8 @@ export class SoundProvider implements DeliveryProvider {
   private readonly isWsl: Required<SoundProviderOptions>["isWsl"];
   private readonly platform: NodeJS.Platform;
   private readonly soundFile?: string;
+  private readonly soundTheme?: string;
+  private readonly stateSoundFiles: Partial<Record<NormalizedState, string>>;
 
   constructor(options: SoundProviderOptions = {}) {
     this.commandExists = options.commandExists ?? commandAvailable;
@@ -101,15 +106,24 @@ export class SoundProvider implements DeliveryProvider {
     this.isWsl = options.isWsl ?? defaultIsWsl;
     this.platform = options.platform ?? process.platform;
     this.soundFile = options.soundFile;
+    this.soundTheme = options.soundTheme;
+    this.stateSoundFiles = options.stateSoundFiles ?? {};
   }
 
-  async send(_event: NormalizedEvent): Promise<boolean> {
+  async send(event: NormalizedEvent): Promise<boolean> {
+    const soundFile = resolveSoundFile(
+      event.state,
+      this.stateSoundFiles,
+      this.soundTheme,
+      this.soundFile
+    );
+
     if (
-      this.soundFile &&
+      soundFile &&
       (this.platform === "win32" || this.isWsl()) &&
       (await this.commandExists("powershell.exe"))
     ) {
-      const windowsSoundFile = toWindowsReadableSoundPath(this.soundFile, this.isWsl());
+      const windowsSoundFile = toWindowsReadableSoundPath(soundFile, this.isWsl());
       const sent = await this.execute([
         "powershell.exe",
         "-NoProfile",
@@ -121,7 +135,7 @@ export class SoundProvider implements DeliveryProvider {
       }
     }
 
-    for (const command of getSoundCommands(this.soundFile)) {
+    for (const command of getSoundCommands(soundFile)) {
       if (!(await this.commandExists(command.name))) {
         continue;
       }
@@ -187,6 +201,15 @@ function getSoundCommands(soundFile?: string): readonly {
     { name: "aplay", args: ["aplay", soundFile] },
     { name: "afplay", args: ["afplay", soundFile] }
   ];
+}
+
+function resolveSoundFile(
+  state: NormalizedState,
+  stateSoundFiles: Partial<Record<NormalizedState, string>>,
+  soundTheme: string | undefined,
+  soundFile?: string
+): string | undefined {
+  return stateSoundFiles[state] ?? resolveThemeSoundFile(soundTheme, state) ?? soundFile;
 }
 
 export function formatNotificationTitle(event: Pick<NormalizedEvent, "tool" | "project" | "state">): string {

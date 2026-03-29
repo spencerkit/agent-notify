@@ -8,8 +8,10 @@ import {
   defaultStateDir,
   findRepoConfig,
   formatConfigToml,
+  getSoundFileForState,
   loadConfig,
   setFlatTomlString,
+  shouldNotifyState,
   shouldPlaySound,
   unsetFlatTomlKey
 } from "../src/config.js";
@@ -92,6 +94,29 @@ describe("config helpers", () => {
     ).toBe(true);
   });
 
+  it("respects per-stage notification toggles", () => {
+    expect(
+      shouldNotifyState(
+        {
+          notifyNeedsInput: true,
+          notifyCompleted: false,
+          notifyFailed: true
+        },
+        "completed"
+      )
+    ).toBe(false);
+    expect(
+      shouldNotifyState(
+        {
+          notifyNeedsInput: true,
+          notifyCompleted: false,
+          notifyFailed: true
+        },
+        "failed"
+      )
+    ).toBe(true);
+  });
+
   it("returns built-in defaults when no config files or env vars are present", async () => {
     const root = await mkdtemp(join(tmpdir(), "agent-notify-config-defaults-"));
     cleanupPaths.push(root);
@@ -158,6 +183,9 @@ describe("config helpers", () => {
       desktopEnabled: false,
       soundEnabled: true,
       soundOnCompleted: false,
+      notifyNeedsInput: true,
+      notifyCompleted: true,
+      notifyFailed: true,
       dedupeSeconds: 45,
       maxLogEntries: 100,
       maxLogAgeDays: 9,
@@ -241,6 +269,85 @@ describe("config helpers", () => {
     await writeFile(repoConfig, 'sound_file = "/repo/override.wav"\n');
 
     expect(loadConfig(cwd).soundFile).toBe("/repo/override.wav");
+  });
+
+  it("parses stage-specific sound files from the highest-precedence config source", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-notify-config-stage-sound-file-"));
+    cleanupPaths.push(root);
+
+    const xdgConfigHome = join(root, "xdg-config");
+    const globalConfig = join(xdgConfigHome, "agent-notify", "config.toml");
+    const repoRoot = join(root, "repo");
+    const repoConfig = join(repoRoot, ".agent-notify.toml");
+    const cwd = join(repoRoot, "nested");
+
+    process.env.XDG_CONFIG_HOME = xdgConfigHome;
+
+    await mkdir(dirname(globalConfig), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(
+      globalConfig,
+      ['sound_file_completed = "/global/done.wav"', 'sound_file_failed = "/global/fail.wav"'].join(
+        "\n"
+      )
+    );
+    await writeFile(
+      repoConfig,
+      ['sound_file_failed = "/repo/fail.wav"', 'sound_file_needs_input = "/repo/input.wav"'].join(
+        "\n"
+      )
+    );
+
+    expect(loadConfig(cwd)).toMatchObject({
+      soundFileCompleted: "/global/done.wav",
+      soundFileFailed: "/repo/fail.wav",
+      soundFileNeedsInput: "/repo/input.wav"
+    });
+  });
+
+  it("parses sound_theme from config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-notify-config-sound-theme-"));
+    cleanupPaths.push(root);
+
+    const xdgConfigHome = join(root, "xdg-config");
+    const globalConfig = join(xdgConfigHome, "agent-notify", "config.toml");
+    const cwd = join(root, "workspace");
+
+    process.env.XDG_CONFIG_HOME = xdgConfigHome;
+
+    await mkdir(dirname(globalConfig), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(globalConfig, 'sound_theme = "standard"\n');
+
+    expect(loadConfig(cwd).soundTheme).toBe("standard");
+  });
+
+  it("parses stage notification toggles from config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-notify-config-stage-toggle-"));
+    cleanupPaths.push(root);
+
+    const xdgConfigHome = join(root, "xdg-config");
+    const globalConfig = join(xdgConfigHome, "agent-notify", "config.toml");
+    const cwd = join(root, "workspace");
+
+    process.env.XDG_CONFIG_HOME = xdgConfigHome;
+
+    await mkdir(dirname(globalConfig), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(
+      globalConfig,
+      [
+        "notify_needs_input = false",
+        "notify_completed = true",
+        "notify_failed = false"
+      ].join("\n")
+    );
+
+    expect(loadConfig(cwd)).toMatchObject({
+      notifyNeedsInput: false,
+      notifyCompleted: true,
+      notifyFailed: false
+    });
   });
 
   it("preserves # characters inside quoted sound_file values", async () => {
@@ -355,6 +462,9 @@ describe("config helpers", () => {
         desktopEnabled: false,
         soundEnabled: false,
         soundOnCompleted: false,
+        notifyNeedsInput: false,
+        notifyCompleted: true,
+        notifyFailed: false,
         dedupeSeconds: 30,
         maxLogEntries: 250,
         maxLogAgeDays: 14,
@@ -365,6 +475,9 @@ describe("config helpers", () => {
         "desktop_enabled = false",
         "sound_enabled = false",
         "sound_on_completed = false",
+        "notify_needs_input = false",
+        "notify_completed = true",
+        "notify_failed = false",
         "dedupe_seconds = 30",
         "max_log_entries = 250",
         "max_log_age_days = 14",
@@ -385,6 +498,9 @@ describe("config helpers", () => {
         "desktop_enabled = true",
         "sound_enabled = true",
         "sound_on_completed = true",
+        "notify_needs_input = true",
+        "notify_completed = true",
+        "notify_failed = true",
         "dedupe_seconds = 15",
         "max_log_entries = 5000",
         "max_log_age_days = 7",
@@ -393,6 +509,61 @@ describe("config helpers", () => {
         ""
       ].join("\n")
     );
+  });
+
+  it("formats config TOML with stage-specific sound files in stable order", () => {
+    expect(
+      formatConfigToml({
+        ...DEFAULT_CONFIG,
+        soundTheme: "standard",
+        soundFile: "/tmp/default.wav",
+        soundFileNeedsInput: "/tmp/input.wav",
+        soundFileCompleted: "/tmp/done.wav",
+        soundFileFailed: "/tmp/fail.wav"
+      })
+    ).toBe(
+      [
+        "desktop_enabled = true",
+        "sound_enabled = true",
+        "sound_on_completed = true",
+        "notify_needs_input = true",
+        "notify_completed = true",
+        "notify_failed = true",
+        "dedupe_seconds = 15",
+        "max_log_entries = 5000",
+        "max_log_age_days = 7",
+        "summary_length = 180",
+        'sound_theme = "standard"',
+        'sound_file = "/tmp/default.wav"',
+        'sound_file_needs_input = "/tmp/input.wav"',
+        'sound_file_completed = "/tmp/done.wav"',
+        'sound_file_failed = "/tmp/fail.wav"',
+        ""
+      ].join("\n")
+    );
+  });
+
+  it("prefers stage-specific sound files over the generic fallback sound", () => {
+    expect(
+      getSoundFileForState(
+        {
+          soundFile: "/tmp/default.wav",
+          soundFileNeedsInput: "/tmp/input.wav",
+          soundFileCompleted: "/tmp/done.wav",
+          soundFileFailed: "/tmp/fail.wav"
+        },
+        "failed"
+      )
+    ).toBe("/tmp/fail.wav");
+    expect(
+      getSoundFileForState(
+        {
+          soundFile: "/tmp/default.wav",
+          soundFileNeedsInput: "/tmp/input.wav"
+        },
+        "completed"
+      )
+    ).toBe("/tmp/default.wav");
   });
 
   it("uses XDG directories when set and falls back under the home directory", () => {

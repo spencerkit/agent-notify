@@ -1,5 +1,5 @@
 import type { AppConfig } from "./config.js";
-import { shouldPlaySound } from "./config.js";
+import { shouldNotifyState, shouldPlaySound } from "./config.js";
 import type { NormalizedEvent } from "./events.js";
 import { DesktopProvider, type DeliveryProvider, SoundProvider } from "./providers.js";
 
@@ -36,7 +36,13 @@ export class Notifier {
       options.soundProvider ??
       new SoundProvider({
         platform: process.platform,
-        soundFile: this.config.soundFile
+        soundFile: this.config.soundFile,
+        soundTheme: this.config.soundTheme,
+        stateSoundFiles: {
+          needs_input: this.config.soundFileNeedsInput,
+          completed: this.config.soundFileCompleted,
+          failed: this.config.soundFileFailed
+        }
       });
   }
 
@@ -44,6 +50,15 @@ export class Notifier {
     if (!(await this.store.shouldEmit(event))) {
       return {
         emitted: false,
+        desktopSent: false,
+        soundSent: false
+      };
+    }
+
+    if (!shouldNotifyState(this.config, event.state)) {
+      await this.store.record(event);
+      return {
+        emitted: true,
         desktopSent: false,
         soundSent: false
       };

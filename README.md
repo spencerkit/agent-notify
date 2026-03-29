@@ -55,6 +55,20 @@ agent-notify install codex --dry-run
 agent-notify install claude --dry-run
 ```
 
+Print the installed CLI version:
+
+```bash
+agent-notify version
+```
+
+Browse built-in sound themes:
+
+```bash
+agent-notify theme list
+agent-notify theme show standard
+agent-notify theme apply standard
+```
+
 ## Commands
 
 Install the Codex hook into `~/.codex/config.toml`:
@@ -88,6 +102,12 @@ Handle a Claude Code hook payload from stdin:
 printf '%s\n' '{"session_id":"session-1","cwd":"/tmp/demo","notification_type":"idle_prompt","message":"Claude is waiting"}' | agent-notify handle claude --event Notification
 ```
 
+Print the installed package version:
+
+```bash
+agent-notify version
+```
+
 Supported Claude events:
 
 - `Notification`
@@ -101,6 +121,10 @@ agent-notify install codex [--config <path>] [--dry-run]
 agent-notify install claude [--settings <path>] [--dry-run]
 agent-notify handle codex '<json>' [--state-dir <path>]
 agent-notify handle claude --event <Notification|Stop|StopFailure> ['<json>'] [--state-dir <path>]
+agent-notify theme list
+agent-notify theme show <subtle|standard|urgent>
+agent-notify theme apply <subtle|standard|urgent>
+agent-notify version
 ```
 
 If the JSON payload is omitted for `handle`, the CLI reads it from stdin.
@@ -118,9 +142,25 @@ If the JSON payload is omitted for `handle`, the CLI reads it from stdin.
 Inspect the current global config or set a custom sound file:
 
 ```bash
+agent-notify theme list
+agent-notify theme show standard
+agent-notify theme apply standard
+
 agent-notify config get
+agent-notify config set notify-needs-input true
+agent-notify config set notify-completed true
+agent-notify config set notify-failed true
 agent-notify config set sound-file /absolute/path/to/ding.wav
+agent-notify config set sound-file-needs-input /absolute/path/to/input.wav
+agent-notify config set sound-file-completed /absolute/path/to/done.wav
+agent-notify config set sound-file-failed /absolute/path/to/fail.wav
+agent-notify config unset notify-needs-input
+agent-notify config unset notify-completed
+agent-notify config unset notify-failed
 agent-notify config unset sound-file
+agent-notify config unset sound-file-needs-input
+agent-notify config unset sound-file-completed
+agent-notify config unset sound-file-failed
 ```
 
 `agent-notify` stores global config in `~/.config/agent-notify/config.toml` by default, or `$XDG_CONFIG_HOME/agent-notify/config.toml` when `XDG_CONFIG_HOME` is set.
@@ -128,14 +168,51 @@ agent-notify config unset sound-file
 Example:
 
 ```toml
+notify_needs_input = true
+notify_completed = true
+notify_failed = true
+
+sound_theme = "standard"
 sound_file = "/absolute/path/to/ding.wav"
+sound_file_needs_input = "/absolute/path/to/input.wav"
+sound_file_completed = "/absolute/path/to/done.wav"
+sound_file_failed = "/absolute/path/to/fail.wav"
 ```
+
+Stage toggle behavior:
+
+- when a stage is disabled, that stage is still recorded but it does not send a desktop notification or sound
+- when a stage is enabled, sound delivery still respects global `sound_enabled`
+- `completed` sounds still respect `sound_on_completed`
+
+Selection order for sounds:
+
+- stage-specific sound file
+- selected built-in `sound_theme`
+- generic `sound_file`
+- built-in platform fallback sound
+- terminal bell fallback
+
+Built-in themes:
+
+- `subtle`: soft, low-interruption cues
+- `standard`: balanced everyday cues
+- `urgent`: high-contrast attention cues
+
+Theme notes:
+
+- `theme apply <name>` writes `sound_theme = "<name>"` into the global config
+- explicit `sound_file_*` stage overrides still take precedence over the selected theme
+- theme selection does not change which stages are enabled
 
 ## Notification Behavior
 
-- `Notification` maps to `needs_input`
-- `Stop` maps to `completed`
-- `StopFailure` maps to `failed`
+- Codex `agent-turn-complete` -> `completed`
+- Claude `Notification` -> `needs_input`
+- Claude `Stop` -> `completed`
+- Claude `StopFailure` -> `failed`
+- Claude `Notification` is only treated as `needs_input` for `permission_prompt`, `idle_prompt`, and `elicitation_dialog`
+- Codex currently exposes only the stable completion path through `notify`; it does not currently provide `needs_input` or `failed` through this package
 - WSL -> Windows toast notifications
 - Windows -> Windows toast notifications
 - macOS -> `osascript`

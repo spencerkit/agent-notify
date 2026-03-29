@@ -11,6 +11,7 @@ import {
   defaultStateDir,
   formatConfigToml,
   loadConfig,
+  setFlatTomlBoolean,
   setFlatTomlString,
   unsetFlatTomlKey
 } from "./config.js";
@@ -22,6 +23,7 @@ import {
   patchCodexConfig
 } from "./installers.js";
 import { Notifier } from "./notifier.js";
+import { getSoundTheme, listSoundThemes } from "./sound-themes.js";
 import { EventStore } from "./store.js";
 
 type Tool = "codex" | "claude";
@@ -57,6 +59,21 @@ export interface MainDependencies {
 
 const DEFAULT_CODEX_CONFIG_PATH = join(homedir(), ".codex", "config.toml");
 const DEFAULT_CLAUDE_SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
+const PACKAGE_JSON_PATH = fileURLToPath(new URL("../package.json", import.meta.url));
+const CONFIG_SOUND_FILE_KEY_MAP = {
+  "sound-file": "sound_file",
+  "sound-file-needs-input": "sound_file_needs_input",
+  "sound-file-completed": "sound_file_completed",
+  "sound-file-failed": "sound_file_failed"
+} as const;
+const CONFIG_NOTIFY_KEY_MAP = {
+  "notify-needs-input": "notify_needs_input",
+  "notify-completed": "notify_completed",
+  "notify-failed": "notify_failed"
+} as const;
+
+type ConfigSoundFileKey = keyof typeof CONFIG_SOUND_FILE_KEY_MAP;
+type ConfigNotifyKey = keyof typeof CONFIG_NOTIFY_KEY_MAP;
 
 export async function main(
   argv: readonly string[] = process.argv.slice(2),
@@ -85,6 +102,15 @@ export async function main(
 
     if (command === "config") {
       return await configCommand(rest, io);
+    }
+
+    if (command === "theme") {
+      return await themeCommand(rest, io);
+    }
+
+    if (command === "version") {
+      io.stdout.write(`${await readPackageVersion(io.readFile)}\n`);
+      return 0;
     }
 
     throw new Error(`unknown command: ${command}`);
@@ -188,14 +214,14 @@ async function configCommand(
     return 0;
   }
 
-  if (action === "set" && key === "sound-file" && value !== undefined) {
+  if (action === "set" && isConfigSoundFileKey(key) && value !== undefined) {
     if (argv.length !== 3) {
       throw new Error(usage);
     }
 
     const next = setFlatTomlString(
       await readExistingText(configPath, runtime.readFile),
-      "sound_file",
+      CONFIG_SOUND_FILE_KEY_MAP[key],
       value
     );
     await runtime.mkdir(dirname(configPath));
@@ -203,7 +229,22 @@ async function configCommand(
     return 0;
   }
 
-  if (action === "unset" && key === "sound-file") {
+  if (action === "set" && isConfigNotifyKey(key) && value !== undefined) {
+    if (argv.length !== 3) {
+      throw new Error(usage);
+    }
+
+    const next = setFlatTomlBoolean(
+      await readExistingText(configPath, runtime.readFile),
+      CONFIG_NOTIFY_KEY_MAP[key],
+      parseCliBoolean(value)
+    );
+    await runtime.mkdir(dirname(configPath));
+    await runtime.writeFile(configPath, next, "utf8");
+    return 0;
+  }
+
+  if (action === "unset" && isConfigSoundFileKey(key)) {
     if (argv.length !== 2) {
       throw new Error(usage);
     }
@@ -213,7 +254,28 @@ async function configCommand(
       return 0;
     }
 
-    const next = unsetFlatTomlKey(current, "sound_file");
+    const next = unsetFlatTomlKey(current, CONFIG_SOUND_FILE_KEY_MAP[key]);
+    if (next.trim().length === 0) {
+      await runtime.unlink(configPath);
+      return 0;
+    }
+
+    await runtime.mkdir(dirname(configPath));
+    await runtime.writeFile(configPath, next, "utf8");
+    return 0;
+  }
+
+  if (action === "unset" && isConfigNotifyKey(key)) {
+    if (argv.length !== 2) {
+      throw new Error(usage);
+    }
+
+    const current = await readOptionalText(configPath, runtime.readFile);
+    if (current === undefined) {
+      return 0;
+    }
+
+    const next = unsetFlatTomlKey(current, CONFIG_NOTIFY_KEY_MAP[key]);
     if (next.trim().length === 0) {
       await runtime.unlink(configPath);
       return 0;
@@ -225,6 +287,99 @@ async function configCommand(
   }
 
   throw new Error(usage);
+}
+
+async function themeCommand(
+  argv: readonly string[],
+  runtime: Required<MainDependencies>
+): Promise<number> {
+  const configPath = defaultConfigPath();
+  const [action, name] = argv;
+  const usage = "usage: agent-notify theme <list|show|apply> ...";
+
+  if (action === "list") {
+    if (argv.length !== 1) {
+      throw new Error(usage);
+    }
+
+    runtime.stdout.write(
+      `${listSoundThemes()
+        .map((theme) => `${theme.name}\t${theme.description}`)
+        .join("\n")}\n`
+    );
+    return 0;
+  }
+
+  if (action === "show") {
+    if (argv.length !== 2) {
+      throw new Error(usage);
+    }
+
+    const theme = requireTheme(name);
+    runtime.stdout.write(
+      [
+        `name: ${theme.name}`,
+        `description: ${theme.description}`,
+        `needs_input: ${theme.files.needs_input}`,
+        `completed: ${theme.files.completed}`,
+        `failed: ${theme.files.failed}`
+      ].join("\n") + "\n"
+    );
+    return 0;
+  }
+
+  if (action === "apply") {
+    if (argv.length !== 2) {
+      throw new Error(usage);
+    }
+
+    const theme = requireTheme(name);
+    const next = setFlatTomlString(
+      await readExistingText(configPath, runtime.readFile),
+      "sound_theme",
+      theme.name
+    );
+    await runtime.mkdir(dirname(configPath));
+    await runtime.writeFile(configPath, next, "utf8");
+    return 0;
+  }
+
+  throw new Error(usage);
+}
+
+function isConfigSoundFileKey(value: string | undefined): value is ConfigSoundFileKey {
+  return value !== undefined && value in CONFIG_SOUND_FILE_KEY_MAP;
+}
+
+function isConfigNotifyKey(value: string | undefined): value is ConfigNotifyKey {
+  return value !== undefined && value in CONFIG_NOTIFY_KEY_MAP;
+}
+
+function requireTheme(name: string | undefined) {
+  if (!name) {
+    throw new Error("missing theme name");
+  }
+
+  const theme = getSoundTheme(name);
+  if (!theme) {
+    throw new Error(`unknown theme: ${name}`);
+  }
+
+  return theme;
+}
+
+function parseCliBoolean(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`invalid boolean value: ${value}`);
 }
 
 function parseHandleOptions(
@@ -346,6 +501,20 @@ async function readOptionalText(
     }
     throw error;
   }
+}
+
+async function readPackageVersion(
+  readText: Required<MainDependencies>["readFile"]
+): Promise<string> {
+  const packageJson = JSON.parse(await readText(PACKAGE_JSON_PATH, "utf8")) as {
+    version?: unknown;
+  };
+
+  if (typeof packageJson.version !== "string" || packageJson.version.length === 0) {
+    throw new Error("package version not found");
+  }
+
+  return packageJson.version;
 }
 
 function parseJsonObject(payloadText: string): Record<string, unknown> {

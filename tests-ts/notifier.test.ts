@@ -12,6 +12,9 @@ describe("Notifier", () => {
         desktopEnabled: true,
         soundEnabled: true,
         soundOnCompleted: false,
+        notifyNeedsInput: true,
+        notifyCompleted: true,
+        notifyFailed: true,
         dedupeSeconds: 15,
         maxLogEntries: 10,
         maxLogAgeDays: 7,
@@ -37,6 +40,9 @@ describe("Notifier", () => {
         desktopEnabled: true,
         soundEnabled: true,
         soundOnCompleted: false,
+        notifyNeedsInput: true,
+        notifyCompleted: true,
+        notifyFailed: true,
         dedupeSeconds: 15,
         maxLogEntries: 10,
         maxLogAgeDays: 7,
@@ -77,6 +83,9 @@ describe("Notifier", () => {
         desktopEnabled: true,
         soundEnabled: true,
         soundOnCompleted: true,
+        notifyNeedsInput: true,
+        notifyCompleted: true,
+        notifyFailed: true,
         dedupeSeconds: 15,
         maxLogEntries: 10,
         maxLogAgeDays: 7,
@@ -119,6 +128,9 @@ describe("Notifier", () => {
         desktopEnabled: true,
         soundEnabled: true,
         soundOnCompleted: true,
+        notifyNeedsInput: true,
+        notifyCompleted: true,
+        notifyFailed: true,
         dedupeSeconds: 15,
         maxLogEntries: 10,
         maxLogAgeDays: 7,
@@ -148,6 +160,51 @@ describe("Notifier", () => {
       soundSent: false
     });
     expect(recorded).toBe(1);
+  });
+
+  it("records disabled stages without sending desktop or sound", async () => {
+    const calls = { desktop: 0, sound: 0, record: 0 };
+    const notifier = new Notifier({
+      config: {
+        desktopEnabled: true,
+        soundEnabled: true,
+        soundOnCompleted: true,
+        notifyNeedsInput: true,
+        notifyCompleted: false,
+        notifyFailed: true,
+        dedupeSeconds: 15,
+        maxLogEntries: 10,
+        maxLogAgeDays: 7,
+        summaryLength: 180
+      },
+      store: {
+        shouldEmit: async () => true,
+        record: async () => {
+          calls.record += 1;
+        }
+      },
+      desktopProvider: {
+        send: async () => {
+          calls.desktop += 1;
+          return true;
+        }
+      },
+      soundProvider: {
+        send: async () => {
+          calls.sound += 1;
+          return true;
+        }
+      }
+    });
+
+    const result = await notifier.notify(makeEvent({ state: "completed" }));
+
+    expect(result).toEqual({
+      emitted: true,
+      desktopSent: false,
+      soundSent: false
+    });
+    expect(calls).toEqual({ desktop: 0, sound: 0, record: 1 });
   });
 
   it("passes process platform and configured sound file into default providers", async () => {
@@ -190,11 +247,17 @@ describe("Notifier", () => {
           desktopEnabled: true,
           soundEnabled: true,
           soundOnCompleted: true,
+          notifyNeedsInput: true,
+          notifyCompleted: true,
+          notifyFailed: true,
           dedupeSeconds: 15,
           maxLogEntries: 10,
           maxLogAgeDays: 7,
           summaryLength: 180,
-          soundFile: "/tmp/ding.wav"
+          soundFile: "/tmp/ding.wav",
+          soundFileNeedsInput: "/tmp/input.wav",
+          soundFileCompleted: "/tmp/done.wav",
+          soundFileFailed: "/tmp/fail.wav"
         },
         store: {
           shouldEmit: async () => true,
@@ -204,7 +267,15 @@ describe("Notifier", () => {
 
       expect(desktopOptions).toEqual([{ platform: process.platform }]);
       expect(soundOptions).toEqual([
-        { platform: process.platform, soundFile: "/tmp/ding.wav" }
+        {
+          platform: process.platform,
+          soundFile: "/tmp/ding.wav",
+          stateSoundFiles: {
+            needs_input: "/tmp/input.wav",
+            completed: "/tmp/done.wav",
+            failed: "/tmp/fail.wav"
+          }
+        }
       ]);
     } finally {
       vi.doUnmock("../src/providers.js");
@@ -499,6 +570,69 @@ describe("providers", () => {
 
     expect(sent).toBe(true);
     expect(commands).toEqual([["paplay", "/tmp/ding.wav"]]);
+  });
+
+  it("prefers the stage-specific sound file over the generic sound file", async () => {
+    const commands: Array<readonly string[]> = [];
+    const provider = new SoundProvider({
+      platform: "linux",
+      soundFile: "/tmp/default.wav",
+      stateSoundFiles: {
+        failed: "/tmp/fail.wav"
+      },
+      commandExists: (command) => command === "paplay",
+      run: async (command) => {
+        commands.push(command);
+        return { ok: true };
+      }
+    });
+
+    const sent = await provider.send(makeEvent({ state: "failed" }));
+
+    expect(sent).toBe(true);
+    expect(commands).toEqual([["paplay", "/tmp/fail.wav"]]);
+  });
+
+  it("falls back to the selected built-in sound theme before the generic sound file", async () => {
+    const commands: Array<readonly string[]> = [];
+    const provider = new SoundProvider({
+      platform: "linux",
+      soundTheme: "standard",
+      soundFile: "/tmp/default.wav",
+      commandExists: (command) => command === "paplay",
+      run: async (command) => {
+        commands.push(command);
+        return { ok: true };
+      }
+    });
+
+    const sent = await provider.send(makeEvent({ state: "failed" }));
+
+    expect(sent).toBe(true);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.[0]).toBe("paplay");
+    expect(commands[0]?.[1]).toMatch(/standard.*failed\.wav$/);
+  });
+
+  it("falls back to the generic sound file when no stage-specific sound is configured", async () => {
+    const commands: Array<readonly string[]> = [];
+    const provider = new SoundProvider({
+      platform: "linux",
+      soundFile: "/tmp/default.wav",
+      stateSoundFiles: {
+        needs_input: "/tmp/input.wav"
+      },
+      commandExists: (command) => command === "paplay",
+      run: async (command) => {
+        commands.push(command);
+        return { ok: true };
+      }
+    });
+
+    const sent = await provider.send(makeEvent({ state: "failed" }));
+
+    expect(sent).toBe(true);
+    expect(commands).toEqual([["paplay", "/tmp/default.wav"]]);
   });
 
   it("falls back to stdout BEL when the TTY BEL write fails", async () => {

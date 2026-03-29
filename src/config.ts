@@ -7,17 +7,27 @@ export interface AppConfig {
   desktopEnabled: boolean;
   soundEnabled: boolean;
   soundOnCompleted: boolean;
+  notifyNeedsInput: boolean;
+  notifyCompleted: boolean;
+  notifyFailed: boolean;
   dedupeSeconds: number;
   maxLogEntries: number;
   maxLogAgeDays: number;
   summaryLength: number;
+  soundTheme?: string;
   soundFile?: string;
+  soundFileNeedsInput?: string;
+  soundFileCompleted?: string;
+  soundFileFailed?: string;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
   desktopEnabled: true,
   soundEnabled: true,
   soundOnCompleted: true,
+  notifyNeedsInput: true,
+  notifyCompleted: true,
+  notifyFailed: true,
   dedupeSeconds: 15,
   maxLogEntries: 5000,
   maxLogAgeDays: 7,
@@ -30,11 +40,18 @@ const FILE_KEY_MAP = {
   desktop_enabled: "desktopEnabled",
   sound_enabled: "soundEnabled",
   sound_on_completed: "soundOnCompleted",
+  notify_needs_input: "notifyNeedsInput",
+  notify_completed: "notifyCompleted",
+  notify_failed: "notifyFailed",
   dedupe_seconds: "dedupeSeconds",
   max_log_entries: "maxLogEntries",
   max_log_age_days: "maxLogAgeDays",
   summary_length: "summaryLength",
-  sound_file: "soundFile"
+  sound_theme: "soundTheme",
+  sound_file: "soundFile",
+  sound_file_needs_input: "soundFileNeedsInput",
+  sound_file_completed: "soundFileCompleted",
+  sound_file_failed: "soundFileFailed"
 } as const satisfies Record<string, AppConfigKey>;
 
 const ENV_KEY_MAP = {
@@ -89,6 +106,11 @@ export function loadConfig(cwd?: string): AppConfig {
     ...readTomlConfig(findRepoConfig(cwd)),
     ...readEnvConfig()
   };
+  const soundFile = coerceString(mergedRaw.soundFile);
+  const soundFileNeedsInput = coerceString(mergedRaw.soundFileNeedsInput);
+  const soundFileCompleted = coerceString(mergedRaw.soundFileCompleted);
+  const soundFileFailed = coerceString(mergedRaw.soundFileFailed);
+  const soundTheme = coerceString(mergedRaw.soundTheme);
 
   return {
     desktopEnabled: coerceBoolean(
@@ -99,6 +121,18 @@ export function loadConfig(cwd?: string): AppConfig {
     soundOnCompleted: coerceBoolean(
       mergedRaw.soundOnCompleted,
       DEFAULT_CONFIG.soundOnCompleted
+    ),
+    notifyNeedsInput: coerceBoolean(
+      mergedRaw.notifyNeedsInput,
+      DEFAULT_CONFIG.notifyNeedsInput
+    ),
+    notifyCompleted: coerceBoolean(
+      mergedRaw.notifyCompleted,
+      DEFAULT_CONFIG.notifyCompleted
+    ),
+    notifyFailed: coerceBoolean(
+      mergedRaw.notifyFailed,
+      DEFAULT_CONFIG.notifyFailed
     ),
     dedupeSeconds: coerceInteger(
       mergedRaw.dedupeSeconds,
@@ -116,7 +150,11 @@ export function loadConfig(cwd?: string): AppConfig {
       mergedRaw.summaryLength,
       DEFAULT_CONFIG.summaryLength
     ),
-    soundFile: coerceString(mergedRaw.soundFile)
+    ...(soundFile ? { soundFile } : {}),
+    ...(soundTheme ? { soundTheme } : {}),
+    ...(soundFileNeedsInput ? { soundFileNeedsInput } : {}),
+    ...(soundFileCompleted ? { soundFileCompleted } : {}),
+    ...(soundFileFailed ? { soundFileFailed } : {})
   };
 }
 
@@ -126,12 +164,27 @@ export function formatConfigToml(config: AppConfig): string {
       `desktop_enabled = ${config.desktopEnabled}`,
       `sound_enabled = ${config.soundEnabled}`,
       `sound_on_completed = ${config.soundOnCompleted}`,
+      `notify_needs_input = ${config.notifyNeedsInput}`,
+      `notify_completed = ${config.notifyCompleted}`,
+      `notify_failed = ${config.notifyFailed}`,
       `dedupe_seconds = ${config.dedupeSeconds}`,
       `max_log_entries = ${config.maxLogEntries}`,
       `max_log_age_days = ${config.maxLogAgeDays}`,
       `summary_length = ${config.summaryLength}`,
+      ...(config.soundTheme
+        ? [`sound_theme = ${JSON.stringify(config.soundTheme)}`]
+        : []),
       ...(config.soundFile
         ? [`sound_file = ${JSON.stringify(config.soundFile)}`]
+        : []),
+      ...(config.soundFileNeedsInput
+        ? [`sound_file_needs_input = ${JSON.stringify(config.soundFileNeedsInput)}`]
+        : []),
+      ...(config.soundFileCompleted
+        ? [`sound_file_completed = ${JSON.stringify(config.soundFileCompleted)}`]
+        : []),
+      ...(config.soundFileFailed
+        ? [`sound_file_failed = ${JSON.stringify(config.soundFileFailed)}`]
         : [])
     ].join("\n") + "\n"
   );
@@ -144,6 +197,10 @@ export function setFlatTomlString(
 ): string {
   const assignment = `${key} = ${JSON.stringify(value)}`;
   return upsertFlatTomlLine(source, key, assignment);
+}
+
+export function setFlatTomlBoolean(source: string, key: string, value: boolean): string {
+  return upsertFlatTomlLine(source, key, `${key} = ${value}`);
 }
 
 export function unsetFlatTomlKey(source: string, key: string): string {
@@ -166,6 +223,43 @@ export function shouldPlaySound(
   }
 
   return state === "needs_input" || state === "failed";
+}
+
+export function shouldNotifyState(
+  config: Pick<AppConfig, "notifyNeedsInput" | "notifyCompleted" | "notifyFailed">,
+  state: NormalizedState
+): boolean {
+  if (state === "needs_input") {
+    return config.notifyNeedsInput;
+  }
+
+  if (state === "completed") {
+    return config.notifyCompleted;
+  }
+
+  return config.notifyFailed;
+}
+
+export function getSoundFileForState(
+  config: Pick<
+    AppConfig,
+    "soundFile" | "soundFileNeedsInput" | "soundFileCompleted" | "soundFileFailed"
+  >,
+  state: NormalizedState
+): string | undefined {
+  if (state === "needs_input" && config.soundFileNeedsInput) {
+    return config.soundFileNeedsInput;
+  }
+
+  if (state === "completed" && config.soundFileCompleted) {
+    return config.soundFileCompleted;
+  }
+
+  if (state === "failed" && config.soundFileFailed) {
+    return config.soundFileFailed;
+  }
+
+  return config.soundFile;
 }
 
 function readTomlConfig(path?: string): RawConfig {

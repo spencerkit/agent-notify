@@ -8,6 +8,31 @@ import {
 } from "../src/config.js";
 
 describe("main", () => {
+  it("prints the installed package version", async () => {
+    let stdout = "";
+    const readFile = vi.fn(async (path: string, _encoding: BufferEncoding) => {
+      if (path.endsWith("package.json")) {
+        return '{"version":"9.9.9"}';
+      }
+
+      return "";
+    });
+
+    const exitCode = await main(["version"], {
+      stdout: {
+        write: (chunk) => {
+          stdout += chunk;
+          return true;
+        }
+      },
+      readFile
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe("9.9.9\n");
+    expect(readFile).toHaveBeenCalledWith(expect.stringMatching(/package\.json$/), "utf8");
+  });
+
   it("routes codex handle payloads from an argument", async () => {
     let seenEvent: unknown;
     const notify = vi.fn(async (event: unknown) => {
@@ -250,6 +275,67 @@ describe("main", () => {
     expect(stdout).toBe("");
   });
 
+  it("lists built-in sound themes", async () => {
+    let stdout = "";
+
+    const exitCode = await main(["theme", "list"], {
+      stdout: {
+        write: (chunk) => {
+          stdout += chunk;
+          return true;
+        }
+      }
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("subtle");
+    expect(stdout).toContain("standard");
+    expect(stdout).toContain("urgent");
+  });
+
+  it("shows a built-in sound theme", async () => {
+    let stdout = "";
+
+    const exitCode = await main(["theme", "show", "standard"], {
+      stdout: {
+        write: (chunk) => {
+          stdout += chunk;
+          return true;
+        }
+      }
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("name: standard");
+    expect(stdout).toContain("needs_input");
+    expect(stdout).toContain("completed");
+    expect(stdout).toContain("failed");
+  });
+
+  it("applies a built-in sound theme to the global config", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () => "");
+
+    const exitCode = await main(["theme", "apply", "standard"], {
+      mkdir,
+      writeFile,
+      readFile
+    });
+
+    expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
+    expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
+    expect(writeFile).toHaveBeenCalledWith(
+      configPath,
+      expect.stringContaining('sound_theme = "standard"'),
+      "utf8"
+    );
+  });
+
   it("rejects extra args for config get", async () => {
     let stderr = "";
 
@@ -291,6 +377,57 @@ describe("main", () => {
     );
   });
 
+  it("writes sound_file_needs_input with config set sound-file-needs-input", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () => "");
+
+    const exitCode = await main(
+      ["config", "set", "sound-file-needs-input", "/tmp/input.wav"],
+      {
+        mkdir,
+        writeFile,
+        readFile
+      }
+    );
+
+    expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
+    expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
+    expect(writeFile).toHaveBeenCalledWith(
+      configPath,
+      expect.stringContaining('sound_file_needs_input = "/tmp/input.wav"'),
+      "utf8"
+    );
+  });
+
+  it("writes notify_completed with config set notify-completed false", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () => "");
+
+    const exitCode = await main(["config", "set", "notify-completed", "false"], {
+      mkdir,
+      writeFile,
+      readFile
+    });
+
+    expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
+    expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
+    expect(writeFile).toHaveBeenCalledWith(
+      configPath,
+      expect.stringContaining("notify_completed = false"),
+      "utf8"
+    );
+  });
+
   it("rejects extra args for config set sound-file", async () => {
     let stderr = "";
 
@@ -309,6 +446,106 @@ describe("main", () => {
 
     expect(exitCode).toBe(1);
     expect(stderr).toContain("usage: agent-notify config <get|set|unset> ...");
+  });
+
+  it("rejects invalid boolean values for config set notify-completed", async () => {
+    let stderr = "";
+
+    const exitCode = await main(["config", "set", "notify-completed", "maybe"], {
+      stderr: {
+        write: (chunk) => {
+          stderr += chunk;
+          return true;
+        }
+      },
+      readFile: async () => ""
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("invalid boolean value");
+  });
+
+  it("rejects unknown sound themes", async () => {
+    let stderr = "";
+
+    const exitCode = await main(["theme", "apply", "loud"], {
+      stderr: {
+        write: (chunk) => {
+          stderr += chunk;
+          return true;
+        }
+      },
+      readFile: async () => ""
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("unknown theme");
+  });
+
+  it("removes only sound_file_failed with config unset sound-file-failed", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
+    const unlink = vi.fn(async (_path: string) => {});
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () =>
+      [
+        'sound_file = "/tmp/default.wav"',
+        'sound_file_failed = "/tmp/failed.wav"',
+        "sound_enabled = true"
+      ].join("\n")
+    );
+
+    const exitCode = await main(["config", "unset", "sound-file-failed"], {
+      mkdir,
+      unlink,
+      writeFile,
+      readFile
+    });
+
+    expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
+    expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
+    expect(unlink).not.toHaveBeenCalled();
+    expect(writeFile).toHaveBeenCalledWith(
+      configPath,
+      'sound_file = "/tmp/default.wav"\nsound_enabled = true',
+      "utf8"
+    );
+  });
+
+  it("removes only notify_failed with config unset notify-failed", async () => {
+    const mkdir = vi.fn(async (_path: string) => {});
+    const unlink = vi.fn(async (_path: string) => {});
+    const writeFile = vi.fn(
+      async (_path: string, _content: string, _encoding: BufferEncoding) => {}
+    );
+    const configPath = defaultConfigPath();
+    const readFile = vi.fn(async () =>
+      [
+        "notify_completed = false",
+        "notify_failed = true",
+        'sound_file = "/tmp/default.wav"'
+      ].join("\n")
+    );
+
+    const exitCode = await main(["config", "unset", "notify-failed"], {
+      mkdir,
+      unlink,
+      writeFile,
+      readFile
+    });
+
+    expect(exitCode).toBe(0);
+    expect(readFile).toHaveBeenCalledWith(configPath, "utf8");
+    expect(mkdir).toHaveBeenCalledWith(dirname(configPath));
+    expect(unlink).not.toHaveBeenCalled();
+    expect(writeFile).toHaveBeenCalledWith(
+      configPath,
+      'notify_completed = false\nsound_file = "/tmp/default.wav"',
+      "utf8"
+    );
   });
 
   it("removes only sound_file with config unset sound-file", async () => {
